@@ -63,9 +63,17 @@ client = get_mqtt_client()
 if client is None:
     st.sidebar.error("Failed to connect to MQTT Broker.")
 
+import os
+
 @st.cache_resource
 def get_detector():
-    return PPEDetector(model_path="yolov8n.pt", mqtt_broker=MQTT_BROKER, mqtt_port=MQTT_PORT)
+    trained_model = "runs/detect/train/weights/best.pt"
+    if os.path.exists(trained_model):
+        st.sidebar.success(f"Loaded custom model: {trained_model}")
+        return PPEDetector(model_path=trained_model, mqtt_broker=MQTT_BROKER, mqtt_port=MQTT_PORT)
+    else:
+        st.sidebar.warning(f"Custom model '{trained_model}' not found. Falling back to generic YOLOv8n.")
+        return PPEDetector(model_path="yolov8n.pt", mqtt_broker=MQTT_BROKER, mqtt_port=MQTT_PORT)
 
 # UI Layout
 col1, col2 = st.columns([2, 1])
