@@ -1,157 +1,258 @@
+"""
+Stage 1 + 2 + 3 – Person detection & tracking, PPE detection, and association.
+
+Combines YOLOv8 ByteTrack (Stage 1), multi-class PPE detection (Stage 2),
+body-region-aware association (Stage 3), zone rule evaluation (Stage 4), and
+temporal validation (Stage 5) via PPEMqttPublisher.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import threading
+from typing import Optional
+
 import cv2
 import numpy as np
+
+# PyTorch 2.6+ compatibility – must be patched before ultralytics import
 import torch
-import ultralytics
+_orig_torch_load = torch.load
+def _safe_torch_load(f, *args, **kwargs):
+    kwargs.setdefault("weights_only", False)
+    return _orig_torch_load(f, *args, **kwargs)
+torch.load = _safe_torch_load
+
 from ultralytics import YOLO
+
+import config
+from association import associate_ppe_to_persons
 from enhancer import IndustrialImageEnhancer
 from publisher import PPEMqttPublisher
+from rule_engine import RuleEngine
 
-# Fix for PyTorch 2.6 weights_only=True default breaking YOLO loading
-_original_load = torch.load
-def safe_load(*args, **kwargs):
-    kwargs['weights_only'] = False
-    return _original_load(*args, **kwargs)
-torch.load = safe_load
+log = logging.getLogger(__name__)
+
+# ── Class definitions (must match dataset.yaml) ────────────────────────────────
+
+ALL_PPE_CLASSES: set[str] = {
+    "helmet", "vest", "boots", "safety_belt", "lanyard", "hook", "anchor_point"
+}
+
+COMPLIANCE_COLOURS = {
+    True:  (0, 200, 0),    # green  – compliant
+    False: (0, 0, 220),    # red    – violation
+}
+
 
 class PPEDetector:
-    def __init__(self, model_path="ppe_training/custom_model/weights/best.pt", mqtt_broker="localhost", mqtt_port=1883):
+    """
+    Full per-frame PPE compliance detector.
+
+    Usage
+    -----
+    detector = PPEDetector()
+    annotated_frame, worker_states = detector.process_frame(frame, zone="work_at_height")
+    """
+
+    def __init__(
+        self,
+        model_path: Optional[str] = None,
+        zone:       str           = config.DEFAULT_ZONE,
+        broker:     str           = config.MQTT_BROKER,
+        port:       int           = config.MQTT_PORT,
+        topic:      str           = config.MQTT_TOPIC,
+    ) -> None:
+        # ── Model ──────────────────────────────────────────────────────────────
+        if model_path is None:
+            model_path = config.DEFAULT_MODEL_PATH
+        if not os.path.exists(model_path):
+            log.warning("Custom model not found at %s, using fallback %s",
+                        model_path, config.FALLBACK_MODEL_PATH)
+            model_path = config.FALLBACK_MODEL_PATH
+
+        self.model       = YOLO(model_path)
+        self.default_zone = zone
+
+        # ── Supporting components ───────────────────────────────────────────────
+        self._enhancer  = IndustrialImageEnhancer()
+        self._publisher = PPEMqttPublisher(broker=broker, port=port, topic=topic)
+        self._rule_engine = RuleEngine()
+        self._lock = threading.Lock()
+
+    # ── Public API ─────────────────────────────────────────────────────────────
+
+    def process_frame(
+        self,
+        frame: np.ndarray,
+        zone:  Optional[str] = None,
+    ) -> tuple[np.ndarray, list[dict]]:
         """
-        Initializes the PPE Compliance Engine.
-        Args:
-            model_path (str): Path to the YOLOv8 model weights (e.g., .pt or .engine).
-            mqtt_broker (str): MQTT broker address for publishing alerts.
-            mqtt_port (int): MQTT broker port.
+        Run the full 5-stage pipeline on one video frame.
+
+        Returns
+        -------
+        annotated_frame : BGR frame with bounding boxes and status overlays
+        worker_states   : list of dicts, one per tracked worker
         """
-        print(f"Loading model from {model_path}...")
-        self.model = YOLO(model_path)
-        self.enhancer = IndustrialImageEnhancer()
-        self.publisher = PPEMqttPublisher(broker=mqtt_broker, port=mqtt_port)
-        
-        # Define the target PPE items required for compliance.
-        # This assumes the trained YOLO model uses these exact class names.
-        self.REQUIRED_PPE = {'helmet', 'vest', 'boots', 'safety_hook'}
-        
-    def process_frame(self, frame: np.ndarray) -> np.ndarray:
-        """
-        Processes a single frame: enhances it, tracks workers, matches PPE, 
-        evaluates compliance, sends alerts, and draws annotations.
-        """
-        # 1. Enhance the image for low-light/dust
-        enhanced_frame = self.enhancer.enhance(frame)
-        
-        # 2. Run YOLO inference & tracking
-        # conf=0.20 retains tracks even when visibility drops
+        active_zone = zone or self.default_zone
+        enhanced    = self._enhancer.enhance(frame)
+
+        # ── Stage 1+2: detect + track ───────────────────────────────────────
         results = self.model.track(
-            enhanced_frame,
+            enhanced,
             persist=True,
-            tracker="bytetrack.yaml",
-            conf=0.20,
-            verbose=False
+            tracker=config.TRACKER_CONFIG,
+            conf=config.DETECTION_CONF,
+            verbose=False,
         )
-        
-        if not results or len(results) == 0:
-            return enhanced_frame
-            
+
+        if not results:
+            return frame, []
+
         result = results[0]
-        boxes = result.boxes
-        
-        if boxes is None or len(boxes) == 0:
-            return enhanced_frame
+        boxes  = result.boxes
 
-        # 3. Extract entities
-        persons = []
-        ppes = []
-        
-        for i in range(len(boxes)):
-            box = boxes[i].xyxy[0].cpu().numpy()
-            conf = float(boxes[i].conf[0].cpu().numpy())
-            cls_id = int(boxes[i].cls[0].cpu().numpy())
-            cls_name = result.names[cls_id]
-            
-            if cls_name == 'person':
-                track_id = int(boxes[i].id[0].cpu().numpy()) if boxes[i].id is not None else -1
-                persons.append({'id': track_id, 'box': box, 'conf': conf})
-            elif cls_name in self.REQUIRED_PPE:
-                # Calculate center point (cx, cy)
-                x1, y1, x2, y2 = box
-                cx = (x1 + x2) / 2.0
-                cy = (y1 + y2) / 2.0
-                ppes.append({'name': cls_name, 'cx': cx, 'cy': cy})
+        persons:   list[dict] = []
+        ppe_items: list[dict] = []
 
-        # 4. Evaluate compliance via Spatial Matching Logic
+        if boxes is not None:
+            for i in range(len(boxes)):
+                cls_id     = int(boxes.cls[i].item())
+                class_name = self.model.names.get(cls_id, f"cls_{cls_id}")
+                box        = boxes.xyxy[i].tolist()
+                conf       = float(boxes.conf[i].item())
+
+                if class_name == "person":
+                    if boxes.id is not None:
+                        try:
+                            track_id = int(boxes.id[i].item())
+                            persons.append({
+                                "id":         track_id,
+                                "box":        box,
+                                "class_name": class_name,
+                                "confidence": conf,
+                            })
+                        except Exception:
+                            pass
+                elif class_name in ALL_PPE_CLASSES:
+                    ppe_items.append({
+                        "box":        box,
+                        "class_name": class_name,
+                        "confidence": conf,
+                    })
+
+        # ── Stage 3: person-to-PPE association ────────────────────────────────
+        person_ppe_map = associate_ppe_to_persons(persons, ppe_items)
+
+        # ── Stage 4+5: rule engine + temporal validation ──────────────────────
+        worker_states: list[dict] = []
         for person in persons:
-            x1, y1, x2, y2 = person['box']
-            track_id = person['id']
-            conf = person['conf']
-            
-            if track_id == -1:
-                # If the tracker hasn't assigned an ID yet, we can't reliably track state over frames
-                continue
-                
-            worker_id = f"Worker_{track_id}"
-            person_ppes = set()
-            
-            # Check if PPE centers are inside the worker's bounding box
-            for ppe in ppes:
-                if x1 <= ppe['cx'] <= x2 and y1 <= ppe['cy'] <= y2:
-                    person_ppes.add(ppe['name'])
-                    
-            missing_equipment = list(self.REQUIRED_PPE - person_ppes)
-            is_compliant = len(missing_equipment) == 0
-            
-            # 5. Alert Publisher (Decoupled MQTT logic handles the >3 consecutive frame rule)
-            self.publisher.process_worker_state(
-                worker_id=worker_id,
-                is_compliant=is_compliant,
-                missing_equipment=missing_equipment,
-                confidence_score=conf
-            )
-            
-            # 6. Annotate Frame
-            color = (0, 255, 0) if is_compliant else (0, 0, 255)
-            cv2.rectangle(enhanced_frame, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
-            
-            # Draw Worker ID and Status
-            label = f"{worker_id} [{conf:.2f}]"
-            cv2.putText(enhanced_frame, label, (int(x1), int(y1) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-            
-            if not is_compliant:
-                missing_str = "Missing: " + ", ".join(missing_equipment)
-                cv2.putText(enhanced_frame, missing_str, (int(x1), int(y2) + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-            else:
-                cv2.putText(enhanced_frame, "COMPLIANT", (int(x1), int(y2) + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                
-        return enhanced_frame
+            pid  = person["id"]
+            ppes = person_ppe_map.get(pid, [])
 
-    def release(self):
-        """Cleanup resources."""
-        self.publisher.close()
+            detected_set = {p["class_name"] for p in ppes}
+            mean_conf    = (
+                float(np.mean([p["confidence"] for p in ppes]))
+                if ppes else 0.0
+            )
+
+            compliance = self._rule_engine.evaluate(
+                worker_id=pid,
+                detected_ppe=detected_set,
+                zone=active_zone,
+                confidence=mean_conf,
+            )
+
+            with self._lock:
+                self._publisher.process_compliance_result(compliance)
+
+            worker_states.append({
+                "worker_id":   f"Worker-{pid}",
+                "zone":        active_zone,
+                "detected_ppe":sorted(detected_set),
+                "missing_ppe": sorted(compliance.missing_ppe),
+                "compliant":   compliance.compliant,
+                "confidence":  round(mean_conf, 3),
+            })
+
+            # Draw annotations
+            self._draw_person(frame, person, compliance.compliant,
+                              compliance.missing_ppe, ppes)
+
+        # Draw PPE boxes without person
+        for ppe in ppe_items:
+            self._draw_ppe(frame, ppe)
+
+        return frame, worker_states
+
+    def release(self) -> None:
+        self._publisher.close()
+
+    # ── Drawing helpers ────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _draw_person(
+        frame:       np.ndarray,
+        person:      dict,
+        compliant:   bool,
+        missing_ppe: set[str],
+        ppes:        list[dict],
+    ) -> None:
+        x1, y1, x2, y2 = map(int, person["box"])
+        colour = COMPLIANCE_COLOURS[compliant]
+        cv2.rectangle(frame, (x1, y1), (x2, y2), colour, 2)
+
+        label = f"Worker-{person['id']}"
+        if compliant:
+            status = "COMPLIANT"
+        else:
+            status = "MISSING: " + ", ".join(sorted(missing_ppe))
+
+        cv2.putText(frame, label,  (x1, y1 - 22),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, colour, 2)
+        cv2.putText(frame, status, (x1, y1 - 6),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, colour, 1)
+
+    @staticmethod
+    def _draw_ppe(frame: np.ndarray, ppe: dict) -> None:
+        x1, y1, x2, y2 = map(int, ppe["box"])
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (200, 150, 0), 1)
+        cv2.putText(
+            frame,
+            f"{ppe['class_name']} {ppe['confidence']:.2f}",
+            (x1, y1 - 4),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.38, (200, 150, 0), 1,
+        )
+
+
+# ── CLI demo ──────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    # Test script for detector
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--source", type=str, default="0", help="Video source (0 for webcam, or file path)")
-    args = parser.parse_args()
-    
-    # Try using public test broker for local run, if not localhost
-    detector = PPEDetector(mqtt_broker="test.mosquitto.org")
-    
-    source = int(args.source) if args.source.isdigit() else args.source
+    import sys
+    logging.basicConfig(level=logging.INFO)
+    source = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() \
+             else (sys.argv[1] if len(sys.argv) > 1 else 0)
+    zone   = sys.argv[2] if len(sys.argv) > 2 else config.DEFAULT_ZONE
+
+    detector = PPEDetector(zone=zone)
     cap = cv2.VideoCapture(source)
-    
-    print("Starting video processing... Press 'q' to quit.")
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
+
+    if not cap.isOpened():
+        print(f"Cannot open source: {source}")
+        sys.exit(1)
+
+    print(f"Running detector. Zone: {zone}. Press 'q' to quit.")
+    while True:
+        ok, frame = cap.read()
+        if not ok:
             break
-            
-        processed_frame = detector.process_frame(frame)
-        cv2.imshow("PPE Compliance Surveillance", processed_frame)
-        
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+        annotated, states = detector.process_frame(frame, zone=zone)
+        cv2.imshow("PPE Detector", annotated)
+        if cv2.waitKey(1) & 0xFF == ord("q"):
             break
-            
+
     cap.release()
     cv2.destroyAllWindows()
     detector.release()

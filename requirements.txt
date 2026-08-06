@@ -1,8 +1,30 @@
-ultralytics
-opencv-python
-fastapi
-uvicorn
-websockets
-numpy
-streamlit
-paho-mqtt
+# EdgeVision PPE Compliance Platform – Python dependencies
+# Install: pip install -r requirements.txt
+
+# ── Core ML / Computer Vision ─────────────────────────────────────────────────
+ultralytics>=8.2.0       # YOLOv8 detection, tracking, export
+opencv-python>=4.8.0     # frame capture, annotation, video I/O
+numpy>=1.24.0            # array operations
+
+# ── Web framework (FastAPI server) ─────────────────────────────────────────────
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+websockets>=12.0
+
+# ── Dashboard (Streamlit) ─────────────────────────────────────────────────────
+streamlit>=1.35.0
+
+# ── Messaging ─────────────────────────────────────────────────────────────────
+paho-mqtt>=1.6.1
+
+# ── Database (optional – for production persistence) ──────────────────────────
+# psycopg2-binary>=2.9.9   # PostgreSQL driver
+# sqlalchemy>=2.0.0        # ORM (optional)
+# alembic>=1.13.0          # migrations (optional)
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+pytest>=8.0.0
+pytest-mock>=3.14.0
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-dotenv>=1.0.0     # load .env files
