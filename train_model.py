@@ -31,7 +31,7 @@ from ultralytics import YOLO
 
 log = logging.getLogger(__name__)
 
-<<<<<<< HEAD
+
 # Strict cuDNN configuration to prevent CUDNN_STATUS_EXECUTION_FAILED and nan loss
 torch.backends.cudnn.enabled = True
 torch.backends.cudnn.benchmark = False
@@ -58,7 +58,7 @@ def main():
         workers=2,              # Limit dataloader workers to prevent RAM/Pagefile crashes on Windows
         project="ppe_training", # Folder name where results will be saved
         name="custom_model"     # Name of the specific training run
-=======
+    )
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train YOLOv8 PPE detection model")
@@ -93,7 +93,7 @@ def train(args: argparse.Namespace) -> str:
     log.info(
         "Starting training: epochs=%d, imgsz=%d, batch=%d, device=%s",
         args.epochs, args.imgsz, args.batch, args.device,
->>>>>>> 23bb9ced683c99cd7b7cc1433e6c86b5f075baf1
+
     )
 
     results = model.train(
