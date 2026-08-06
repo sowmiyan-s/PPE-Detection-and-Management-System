@@ -1,0 +1,11 @@
+path: /content/ppe_dataset # Colab path
+train: images/train 
+val: images/val     
+
+# Classes
+names:
+  0: person
+  1: helmet
+  2: vest
+  3: boots
+  4: safety_hook

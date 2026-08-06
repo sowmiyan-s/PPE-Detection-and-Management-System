@@ -67,7 +67,7 @@ import os
 
 @st.cache_resource
 def get_detector():
-    trained_model = "ppe_training/custom_model/weights/best.pt"
+    trained_model = "custom_model-3/weights/best.pt"
     if os.path.exists(trained_model):
         st.sidebar.success(f"Loaded custom model: {trained_model}")
         return PPEDetector(model_path=trained_model, mqtt_broker=MQTT_BROKER, mqtt_port=MQTT_PORT)
@@ -82,8 +82,15 @@ with col1:
     st.subheader("Live Surveillance Feed")
     
     # Input options
-    video_source = st.selectbox("Select Video Source", ["0 (Webcam)", "rtsp://simulated.stream", "simulated.mp4"])
-    run = st.checkbox("▶️ Start Surveillance", value=False)
+    import glob
+    video_source = st.selectbox("Select Video Source", ["0 (Webcam)", "Dataset Image (Test)", "rtsp://simulated.stream", "simulated.mp4"])
+    
+    if video_source == "Dataset Image (Test)":
+        test_images = glob.glob("datasets/ppe_dataset/images/train/*.jpg")[:10]
+        selected_image = st.selectbox("Select Image from Dataset", test_images)
+        run = st.button("▶️ Process Image")
+    else:
+        run = st.checkbox("▶️ Start Surveillance", value=False)
     
     # Placeholders for video and metrics
     frame_placeholder = st.empty()
@@ -98,47 +105,78 @@ with col2:
 if run:
     detector = get_detector()
     
-    # Determine source type
-    src = 0 if "0" in video_source else video_source
-    cap = cv2.VideoCapture(src)
-    
-    while run and cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            st.warning("Video stream disconnected or ended.")
-            break
+    if video_source == "Dataset Image (Test)":
+        frame = cv2.imread(selected_image)
+        if frame is not None:
+            processed_frame = detector.process_frame(frame)
+            frame_rgb = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
+            frame_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
             
-        # 1. Process Frame
-        processed_frame = detector.process_frame(frame)
-        frame_rgb = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
+            # Process MQTT Queue for New Alerts
+            while not st.session_state.mqtt_queue.empty():
+                alert = st.session_state.mqtt_queue.get()
+                st.session_state.logs.insert(0, alert)
+                if len(st.session_state.logs) > 50:
+                    st.session_state.logs.pop()
+                    
+            with log_placeholder.container():
+                if not st.session_state.logs:
+                    st.markdown('<p class="compliant-text">✅ No violations detected yet.</p>', unsafe_allow_html=True)
+                for log in st.session_state.logs:
+                    missing = ", ".join(log['missing_equipment'])
+                    time_str = log['timestamp'][:19].replace("T", " ")
+                    st.markdown(f"""
+                    <div class="violation-card">
+                        <b>{log['worker_id']}</b><br>
+                        ⏱ {time_str}<br>
+                        ⚠️ <b>Missing:</b> {missing}<br>
+                        <i>Confidence: {log['confidence_score']:.2f}</i>
+                    </div>
+                    """, unsafe_allow_html=True)
+        else:
+            st.error("Failed to load the selected image.")
+    else:
+        # Determine source type
+        src = 0 if "0" in video_source else video_source
+        cap = cv2.VideoCapture(src)
         
-        # 2. Render Frame
-        frame_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
-        
-        # 3. Process MQTT Queue for New Alerts
-        while not st.session_state.mqtt_queue.empty():
-            alert = st.session_state.mqtt_queue.get()
-            st.session_state.logs.insert(0, alert)
-            if len(st.session_state.logs) > 50:  # keep history manageable
-                st.session_state.logs.pop()
+        while run and cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                st.warning("Video stream disconnected or ended.")
+                break
                 
-        # 4. Render Logs
-        with log_placeholder.container():
-            if not st.session_state.logs:
-                st.markdown('<p class="compliant-text">✅ No violations detected yet. All workers are compliant.</p>', unsafe_allow_html=True)
-            for log in st.session_state.logs:
-                missing = ", ".join(log['missing_equipment'])
-                time_str = log['timestamp'][:19].replace("T", " ")
-                st.markdown(f"""
-                <div class="violation-card">
-                    <b>{log['worker_id']}</b><br>
-                    ⏱ {time_str}<br>
-                    ⚠️ <b>Missing:</b> {missing}<br>
-                    <i>Confidence: {log['confidence_score']:.2f}</i>
-                </div>
-                """, unsafe_allow_html=True)
-                
-    cap.release()
+            # 1. Process Frame
+            processed_frame = detector.process_frame(frame)
+            frame_rgb = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
+            
+            # 2. Render Frame
+            frame_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
+            
+            # 3. Process MQTT Queue for New Alerts
+            while not st.session_state.mqtt_queue.empty():
+                alert = st.session_state.mqtt_queue.get()
+                st.session_state.logs.insert(0, alert)
+                if len(st.session_state.logs) > 50:  # keep history manageable
+                    st.session_state.logs.pop()
+                    
+            # 4. Render Logs
+            with log_placeholder.container():
+                if not st.session_state.logs:
+                    st.markdown('<p class="compliant-text">✅ No violations detected yet. All workers are compliant.</p>', unsafe_allow_html=True)
+                for log in st.session_state.logs:
+                    missing = ", ".join(log['missing_equipment'])
+                    time_str = log['timestamp'][:19].replace("T", " ")
+                    st.markdown(f"""
+                    <div class="violation-card">
+                        <b>{log['worker_id']}</b><br>
+                        ⏱ {time_str}<br>
+                        ⚠️ <b>Missing:</b> {missing}<br>
+                        <i>Confidence: {log['confidence_score']:.2f}</i>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+        cap.release()
 else:
     frame_placeholder.info("Click 'Start Surveillance' to begin live monitoring.")
     with log_placeholder.container():

@@ -9,6 +9,11 @@ def safe_load(*args, **kwargs):
     return _original_load(*args, **kwargs)
 torch.load = safe_load
 
+# Strict cuDNN configuration to prevent CUDNN_STATUS_EXECUTION_FAILED and nan loss
+torch.backends.cudnn.enabled = True
+torch.backends.cudnn.benchmark = False
+torch.backends.cudnn.deterministic = True
+
 def main():
     # 1. Load a pretrained model (YOLOv8 Nano is HIGHLY recommended for Jetson)
     print("Loading YOLOv8n base model...")
@@ -21,8 +26,13 @@ def main():
         data="dataset.yaml",       # Path to your dataset's YAML configuration file
         epochs=50,              # Number of training epochs (increase to 100-300 for production accuracy)
         imgsz=640,              # Standard YOLO image size
-        batch=8,                # Lowered from 16 to 8 to prevent Out Of Memory on GTX 1650
+        batch=4,                # Lowered to 4 to guarantee no Out Of Memory on 4GB VRAM
         device=0,               # Set to '0' to use your NVIDIA GPU
+        amp=False,              # MUST BE FALSE FOR GTX 1650 (fixes nan loss and cuDNN crashes)
+        half=False,             # Disable FP16 entirely to avoid nan losses
+        optimizer="SGD",        # SGD is significantly more stable than AdamW
+        lr0=0.01,               # Stable learning rate for SGD
+        workers=2,              # Limit dataloader workers to prevent RAM/Pagefile crashes on Windows
         project="ppe_training", # Folder name where results will be saved
         name="custom_model"     # Name of the specific training run
     )

@@ -132,7 +132,7 @@ async def vision_loop():
     global pipeline, camera
     # Initialize pipeline with standard YOLOv8n (default). 
     # Change to your custom model path when ready e.g., VisionPipeline("best.pt")
-    pipeline = VisionPipeline("yolov8n.pt") 
+    pipeline = VisionPipeline("custom_model-3/weights/best.pt") 
     
     # 0 is the default web camera. Change to an RTSP link like 'rtsp://user:pass@ip:port' for IP cameras
     camera = cv2.VideoCapture(0) 
