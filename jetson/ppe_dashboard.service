@@ -1,0 +1,30 @@
+[Unit]
+Description=EdgeVision PPE Dashboard (Streamlit)
+Documentation=file:///opt/ppe_monitor/docs/jetson_setup.md
+After=network-online.target ppe_monitor.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ppe
+Group=ppe
+WorkingDirectory=/opt/ppe_monitor
+
+EnvironmentFile=/opt/ppe_monitor/.env
+
+ExecStart=/usr/bin/streamlit run app.py \
+    --server.port 8501 \
+    --server.address 0.0.0.0 \
+    --server.headless true
+
+Restart=on-failure
+RestartSec=10s
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ppe_dashboard
+
+SupplementaryGroups=video render
+
+[Install]
+WantedBy=multi-user.target

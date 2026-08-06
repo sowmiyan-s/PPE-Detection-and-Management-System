@@ -1,0 +1,39 @@
+[Unit]
+Description=EdgeVision PPE Compliance Monitor
+Documentation=file:///opt/ppe_monitor/docs/jetson_setup.md
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=ppe
+Group=ppe
+WorkingDirectory=/opt/ppe_monitor
+
+# Load environment variables from .env file
+EnvironmentFile=/opt/ppe_monitor/.env
+
+# Start the FastAPI WebSocket server
+# Streamlit dashboard can be started separately or added as a second service
+ExecStart=/usr/bin/python3 server.py
+
+# Restart policy
+Restart=on-failure
+RestartSec=10s
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ppe_monitor
+
+# Resource limits
+# Adjust based on Jetson power mode
+LimitNOFILE=65536
+
+# Give CUDA/GPU access
+SupplementaryGroups=video render
+
+[Install]
+WantedBy=multi-user.target

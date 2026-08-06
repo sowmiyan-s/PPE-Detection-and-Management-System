@@ -1,19 +1,40 @@
-# YOLOv8 Dataset Configuration for PPE Compliance System
-# 
-# Instructions:
-# 1. Place your training images in the 'datasets/ppe_dataset/images/train' folder.
-# 2. Place your training labels in the 'datasets/ppe_dataset/labels/train' folder.
-# 3. Place your validation images and labels in 'images/val' and 'labels/val' respectively.
-# 4. Make sure your annotation tool uses the exact class indices defined below.
+# EdgeVision PPE Dataset Configuration
+# Compatible with YOLOv8 / Ultralytics training pipeline
+# Paths are relative to this file (project root)
 
-path: C:/Users/Asus/Desktop/test/datasets/ppe_dataset
-train: C:/Users/Asus/Desktop/test/datasets/ppe_dataset/images/train
-val: C:/Users/Asus/Desktop/test/datasets/ppe_dataset/images/val
+path: datasets/ppe_dataset    # dataset root directory
+train: images/train           # training images   (relative to path)
+val:   images/val             # validation images (relative to path)
+test:  images/test            # test images       (relative to path, optional)
 
-# Classes
+# Number of classes
+nc: 8
+
+# Class names (must match the order used during labelling)
 names:
   0: person
   1: helmet
   2: vest
   3: boots
-  4: safety_hook
+  4: safety_belt
+  5: lanyard
+  6: hook
+  7: anchor_point
+
+# ── Notes ──────────────────────────────────────────────────────────────────────
+# Expected directory layout:
+#
+#   datasets/ppe_dataset/
+#   ├── images/
+#   │   ├── train/     *.jpg / *.png
+#   │   ├── val/
+#   │   └── test/
+#   └── labels/
+#       ├── train/     *.txt  (YOLO format: cls cx cy w h, normalised)
+#       ├── val/
+#       └── test/
+#
+# Label format per line:  <class_id> <cx> <cy> <width> <height>
+#   All values normalised to [0, 1] relative to image dimensions.
+#
+# See docs/dataset_guide.md for the full labelling guide.
