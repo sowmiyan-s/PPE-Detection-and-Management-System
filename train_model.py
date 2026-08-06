@@ -1,4 +1,13 @@
+import torch
+import ultralytics
 from ultralytics import YOLO
+
+# Fix for PyTorch 2.6 weights_only=True default breaking YOLO loading
+_original_load = torch.load
+def safe_load(*args, **kwargs):
+    kwargs['weights_only'] = False
+    return _original_load(*args, **kwargs)
+torch.load = safe_load
 
 def main():
     # 1. Load a pretrained model (YOLOv8 Nano is HIGHLY recommended for Jetson)
@@ -9,11 +18,11 @@ def main():
     # NOTE: Ensure you have your dataset ready and the data.yaml path is correct.
     print("Starting training process...")
     results = model.train(
-        data="data.yaml",       # Path to your dataset's YAML configuration file
+        data="dataset.yaml",       # Path to your dataset's YAML configuration file
         epochs=50,              # Number of training epochs (increase to 100-300 for production accuracy)
         imgsz=640,              # Standard YOLO image size
-        batch=16,               # Batch size (lower it if you run out of memory)
-        device="cpu",           # IMPORTANT: Change to '0' if you have an NVIDIA GPU (CUDA)
+        batch=8,                # Lowered from 16 to 8 to prevent Out Of Memory on GTX 1650
+        device=0,               # Set to '0' to use your NVIDIA GPU
         project="ppe_training", # Folder name where results will be saved
         name="custom_model"     # Name of the specific training run
     )

@@ -1,0 +1,18 @@
+# Datasets and large images
+datasets/
+DS/
+
+# Model weights
+*.pt
+*.engine
+
+# YOLO training outputs
+ppe_training/
+runs/
+
+# Python cache
+__pycache__/
+*.pyc
+.venv/
+env/
+venv/

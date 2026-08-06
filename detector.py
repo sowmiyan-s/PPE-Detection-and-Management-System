@@ -6,15 +6,15 @@ from ultralytics import YOLO
 from enhancer import IndustrialImageEnhancer
 from publisher import PPEMqttPublisher
 
-# Fix for PyTorch 2.6 weights_only=True default
-if hasattr(torch.serialization, 'add_safe_globals'):
-    try:
-        torch.serialization.add_safe_globals([ultralytics.nn.tasks.DetectionModel])
-    except Exception:
-        pass
+# Fix for PyTorch 2.6 weights_only=True default breaking YOLO loading
+_original_load = torch.load
+def safe_load(*args, **kwargs):
+    kwargs['weights_only'] = False
+    return _original_load(*args, **kwargs)
+torch.load = safe_load
 
 class PPEDetector:
-    def __init__(self, model_path="yolov8n.pt", mqtt_broker="localhost", mqtt_port=1883):
+    def __init__(self, model_path="ppe_training/custom_model/weights/best.pt", mqtt_broker="localhost", mqtt_port=1883):
         """
         Initializes the PPE Compliance Engine.
         Args:

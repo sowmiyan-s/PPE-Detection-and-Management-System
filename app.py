@@ -67,7 +67,7 @@ import os
 
 @st.cache_resource
 def get_detector():
-    trained_model = "runs/detect/train/weights/best.pt"
+    trained_model = "ppe_training/custom_model/weights/best.pt"
     if os.path.exists(trained_model):
         st.sidebar.success(f"Loaded custom model: {trained_model}")
         return PPEDetector(model_path=trained_model, mqtt_broker=MQTT_BROKER, mqtt_port=MQTT_PORT)

@@ -6,9 +6,9 @@
 # 3. Place your validation images and labels in 'images/val' and 'labels/val' respectively.
 # 4. Make sure your annotation tool uses the exact class indices defined below.
 
-path: datasets/ppe_dataset # dataset root dir
-train: images/train # train images (relative to 'path')
-val: images/val     # val images (relative to 'path')
+path: C:/Users/Asus/Desktop/test/datasets/ppe_dataset
+train: C:/Users/Asus/Desktop/test/datasets/ppe_dataset/images/train
+val: C:/Users/Asus/Desktop/test/datasets/ppe_dataset/images/val
 
 # Classes
 names:

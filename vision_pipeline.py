@@ -3,10 +3,9 @@ from ultralytics import YOLO
 from association import associate_ppe_to_persons
 
 class VisionPipeline:
-    def __init__(self, model_path="yolov8n.pt", ppe_classes=None):
+    def __init__(self, model_path="ppe_training/custom_model/weights/best.pt", ppe_classes=None):
         # Initialize the YOLO model. 
-        # Note: 'yolov8n.pt' is a generic COCO model for testing. 
-        # For actual PPE detection, you will need to replace this with your custom trained model weights (e.g., 'best.pt').
+        # For actual PPE detection, we are using the custom trained model weights ('best.pt').
         self.model = YOLO(model_path)
         
         # List of classes that represent safety equipment
