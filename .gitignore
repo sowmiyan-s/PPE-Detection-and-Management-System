@@ -1,18 +1,37 @@
-# Datasets and large images
-datasets/
-DS/
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.env
+.venv/
+venv/
 
-# Model weights
-*.pt
-*.engine
-
-# YOLO training outputs
+# Model training outputs (large files)
 ppe_training/
 runs/
+*.engine
+*.onnx
 
-# Python cache
-__pycache__/
-*.pyc
-.venv/
-env/
-venv/
+# Replit internals
+.replit
+.pythonlibs/
+.cache/
+.local/
+.agents/
+
+# Attached assets / temp files
+attached_assets/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Dataset images (track only structure/labels, not raw images)
+datasets/ppe_dataset/images/
