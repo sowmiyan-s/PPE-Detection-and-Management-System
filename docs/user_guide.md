@@ -1,164 +1,71 @@
-# EdgeVision PPE Compliance Platform – User Guide
+# EdgeVision PPE Compliance & Work-at-Height Platform — User Guide
 
 ## Overview
-
-The EdgeVision PPE Compliance Platform monitors workers in industrial
-environments using AI-powered computer vision to detect Personal Protective
-Equipment (PPE) compliance in real time.
-
-### What the system detects
-
-| Item | What is checked |
-|------|----------------|
-| Safety helmet | Present, absent, or incorrectly worn |
-| Reflective safety vest | Present or absent |
-| Safety boots | Present or absent |
-| Safety harness / belt | Present or absent |
-| Lanyard | Connected or disconnected |
-| Safety hook | Present and connected appropriately |
-| Worker | Identified and tracked across frames |
+EdgeVision is an edge computer vision platform for real-time safety monitoring in industrial environments. It automatically detects workers, verifies PPE compliance (helmets, vests, boots, harnesses), validates zone rules, and records timestamped evidence of violations into MongoDB.
 
 ---
 
 ## Getting Started
 
-### Starting the Streamlit dashboard
+### 1. Prerequisites
+- **Python 3.10+**
+- **Node.js 18+** & npm
+- **MongoDB Atlas** or Local MongoDB instance
+- Webcam / RTSP IP camera stream / YouTube video feed
 
-```bash
-streamlit run app.py
+### 2. Environment Setup
+Create a `.env` file in the project root:
+```env
+MONGODB_URI=mongodb+srv://<username>:<password>@cluster.mongodb.net
+MONGODB_DB_NAME=edgevision
+TARGET_FPS=20
+DETECTION_CONF=0.20
 ```
 
-Open your browser at `http://localhost:8501` (or the Replit preview URL).
-
-### Starting the live WebSocket server
-
+### 3. Running the Application
+Launch both backend FastAPI server and Vite frontend using `start_fullstack.bat` or manually:
 ```bash
-python server.py
+# Terminal 1: Python API & Vision Pipeline
+python -m src.api.server
+
+# Terminal 2: Web Dashboard Frontend
+cd frontend
+npm run dev
 ```
 
-Open your browser at `http://localhost:8000`.
+Open your browser at `http://localhost:5173`.
 
 ---
 
-## Dashboard Pages
+## Key Dashboard Pages
 
-### 📷 Live Monitoring
-
-1. Select the **camera source** (webcam index, RTSP URL, or video file).
-2. Select the **active zone** (determines which PPE is required).
-3. Check **▶ Start detection** to begin the live feed.
-4. Worker cards appear below the feed showing compliance status:
-   - **Green border** — worker is compliant.
-   - **Red border** — worker has a violation; missing PPE is listed in red.
-5. Uncheck **Start detection** to pause.
-
-### 🚨 Active Violations
-
-Shows the 50 most recent violations received via MQTT.
-
-- Each card shows: worker ID, zone, timestamp, missing PPE, detected PPE, and confidence.
-- Click **Clear violations** to reset the list.
-
-### 📋 Event History
-
-Full searchable log (up to 500 events per session).
-
-- Use the **search bar** to filter by worker ID, zone, or missing PPE name.
-- Use the **zone filter** to narrow by zone.
-- Expand any event row to see the full JSON payload.
-
-### 👷 Worker Compliance
-
-Per-worker statistics showing total violations and last-seen timestamp.
-
-### 🗺️ Zone Configuration
-
-Configure which PPE items are required in each zone.
-
-1. Expand a zone to see and update its required PPE list.
-2. Click **Save** to apply changes.
-3. Use the **Add new zone** section to create custom zones.
-
-> Changes are applied to the in-memory rule engine immediately but are
-> not persisted to the database in this version.
-
-### 📹 Camera Management
-
-Add and view camera sources.
-
-1. Enter a camera name and source (device index or RTSP URL).
-2. Click **Add camera** to register it.
-
-### 📊 Reports
-
-Safety summary reports:
-
-- Metric counts for today, this week, and this month.
-- Bar chart of violations broken down by **missing PPE class**.
-- Bar chart of violations by **zone**.
-- **Top offenders** list (workers with the most violations).
-
-### 🤖 Model Monitoring
-
-Displays the active model version, average FPS, mAP50, and real-time FPS history.
+1. **Live Monitoring (`/live`)**: View live AI camera streams in multi-card grid view or single-feed focus view. Includes real-time detection filters (*Show All*, *Violations*, *Compliant*, *Wearing Helmet*, *Wearing Vest*).
+2. **Active Violations (`/violations`)**: Review unacknowledged safety violations with high-resolution image snapshots and 5-second MP4 video evidence clips. Includes single-click **Acknowledge Alert** actions.
+3. **Event History (`/events`)**: Complete searchable database log of past incidents with date range and zone filtering.
+4. **Worker Compliance (`/compliance`)**: Aggregated compliance scores per worker tracking ID.
+5. **Zone Configuration (`/zones`)**: Configure safety requirements per zone (*General Plant*, *Construction*, *Work at Height*, *Restricted Machinery*).
+6. **Camera Management (`/cameras`)**: Add, edit, test, or remove RTSP streams, YouTube feeds, or local webcams.
+7. **Model Monitoring (`/model`)**: Telemetry metrics including real-time FPS throughput, P95 latency, precision, recall, and mAP50.
 
 ---
 
-## Understanding Alerts
+## Jetson & Edge Deployment
 
-An alert is only published after all three conditions are met (Stage-5 temporal
-validation):
-
-1. **Frame frequency:** The same violation appears in ≥ 8 of the last 10 frames.
-2. **Confidence:** Detection confidence is ≥ 0.30.
-3. **Zone dwell time:** The worker has been in the zone for ≥ 2 seconds.
-
-This prevents false alerts from motion blur, partial occlusion, or a worker
-briefly passing through a zone.
-
-Once an alert fires for a violation, it is **suppressed** until the worker becomes
-compliant — preventing repeated alerts for the same ongoing event.
-
----
-
-## Safety Zones
-
-| Zone | Required PPE |
-|------|-------------|
-| General plant | Helmet, vest |
-| Construction | Helmet, vest, boots |
-| Work at height | Helmet, vest, boots, safety belt, hook |
-| Restricted machinery | Helmet, vest |
-
-Zones are configurable via the **Zone Configuration** page or via `config.py`.
-
----
-
-## Troubleshooting
-
-| Problem | Possible cause | Solution |
-|---------|---------------|----------|
-| Black/blank camera feed | Camera index wrong | Try source `1` or enter RTSP URL |
-| No detections | Model not loaded | Check `MODEL_PATH`; run `train_model.py` |
-| MQTT not connected | Broker unreachable | Set `MQTT_BROKER` env var; check firewall |
-| Very low FPS | CPU inference | Use a GPU machine or export TensorRT engine |
-| Many false alerts | Confidence too low | Increase `DETECTION_CONF` to 0.35–0.50 |
-| No alerts despite violations | Temporal threshold not met | Reduce `TEMPORAL_MIN_HITS` in `config.py` |
-
----
-
-## Environment Variables Quick Reference
-
-See `docs/api_documentation.md` for the full list of configurable environment
-variables.
-
+### Exporting Model Engine
+To export PyTorch weights (`.pt`) to ONNX or TensorRT:
 ```bash
-# Example: private MQTT broker
-export MQTT_BROKER=my.broker.com
-export MQTT_PORT=8883
-export MQTT_USE_TLS=true
-export MQTT_USERNAME=ppe
-export MQTT_PASSWORD=secret
+# Export to ONNX format
+python scripts/export_onnx.py --model experiments/ppe_training/custom_model/weights/best.pt
 
-streamlit run app.py
+# Export to TensorRT FP16 Engine
+python scripts/export_tensorrt.py --model experiments/ppe_training/custom_model/weights/best.pt --half
+```
+
+### Auto-boot Service Installation
+Copy `scripts/edgevision.service` to `/etc/systemd/system/` on Linux:
+```bash
+sudo cp scripts/edgevision.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable edgevision
+sudo systemctl start edgevision
 ```
