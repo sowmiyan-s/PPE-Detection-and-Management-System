@@ -1,7 +1,7 @@
 """Tests for Stage-3 person-to-PPE association."""
 
 import pytest
-from association import associate_ppe_to_persons, get_intersection_over_area
+from src.core.association import associate_ppe_to_persons, get_intersection_over_area
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────

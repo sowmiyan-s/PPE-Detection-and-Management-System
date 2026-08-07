@@ -33,5 +33,26 @@ Thumbs.db
 # Logs
 *.log
 
-# Dataset images (track only structure/labels, not raw images)
+# Dataset images and directories
+datasets/
+dataset/
 datasets/ppe_dataset/images/
+
+# Database files
+database/*.db
+database/*.db-journal
+database/edgevision.db
+database/edgevision.db-journal
+database/evidence/
+
+# Node
+node_modules/
+
+# Models
+*.pt
+*.engine
+*.onnx
+
+# Testing and benchmarks
+.pytest_cache/
+.benchmarks/

@@ -11,8 +11,8 @@ fastapi>=0.110.0
 uvicorn[standard]>=0.29.0
 websockets>=12.0
 
-# ── Dashboard (Streamlit) ─────────────────────────────────────────────────────
-streamlit>=1.35.0
+# ── Dashboard (Streamlit removed) ─────────────────────────────────────────────
+# streamlit>=1.35.0
 
 # ── Messaging ─────────────────────────────────────────────────────────────────
 paho-mqtt>=1.6.1

@@ -4,9 +4,9 @@ import time
 import pytest
 from unittest.mock import patch
 
-from rule_engine import ComplianceResult
-from temporal_validator import TemporalValidator
-import config
+from src.core.rule_engine import ComplianceResult
+from src.core.temporal_validator import TemporalValidator
+from src.core import config
 
 
 def _make_result(compliant: bool, worker_id: int = 1,
@@ -39,7 +39,7 @@ def test_alert_fires_after_full_window():
     """Alert SHOULD fire once the window is full with enough hits."""
     tv = TemporalValidator()
     # Fill zone duration requirement by mocking time
-    with patch("temporal_validator.time.monotonic", side_effect=[
+    with patch("src.core.temporal_validator.time.monotonic", side_effect=[
         0.0,                                   # first zone_entry_time
         *[config.TEMPORAL_MIN_ZONE_SECS + 1.0] * (config.TEMPORAL_WINDOW * 2)
     ]):
@@ -62,7 +62,7 @@ def test_compliant_frame_does_not_alert():
 def test_low_confidence_suppresses_alert():
     """Alert should be suppressed when confidence is below threshold."""
     tv = TemporalValidator()
-    with patch("temporal_validator.time.monotonic",
+    with patch("src.core.temporal_validator.time.monotonic",
                return_value=config.TEMPORAL_MIN_ZONE_SECS + 1.0):
         for _ in range(config.TEMPORAL_WINDOW):
             alert, reason = tv.update(_make_result(
@@ -76,7 +76,7 @@ def test_low_confidence_suppresses_alert():
 def test_same_ongoing_violation_not_repeated():
     """After an alert fires, the same continuing violation should not re-fire."""
     tv = TemporalValidator()
-    with patch("temporal_validator.time.monotonic",
+    with patch("src.core.temporal_validator.time.monotonic",
                return_value=config.TEMPORAL_MIN_ZONE_SECS + 1.0):
         alert_count = 0
         for _ in range(config.TEMPORAL_WINDOW * 3):
@@ -90,8 +90,8 @@ def test_same_ongoing_violation_not_repeated():
 def test_alert_resumes_after_compliance():
     """Alert should fire again if a new violation starts after a compliant period."""
     tv = TemporalValidator()
-    with patch("temporal_validator.time.monotonic",
-               return_value=config.TEMPORAL_MIN_ZONE_SECS + 5.0):
+    with patch("src.core.temporal_validator.time.monotonic",
+               side_effect=[0.0] + [config.TEMPORAL_MIN_ZONE_SECS + 5.0] * 50):
         # First violation cycle
         for _ in range(config.TEMPORAL_WINDOW):
             tv.update(_make_result(compliant=False))

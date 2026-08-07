@@ -1,7 +1,7 @@
 """Tests for Stage-4 zone rule engine."""
 
 import pytest
-from rule_engine import RuleEngine, ZoneConfig, ComplianceResult
+from src.core.rule_engine import RuleEngine, ZoneConfig, ComplianceResult
 
 
 # ── ZoneConfig ────────────────────────────────────────────────────────────────
