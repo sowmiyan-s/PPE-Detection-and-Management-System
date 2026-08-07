@@ -1,9 +1,7 @@
 @echo off
 echo Starting EdgeVision Fullstack...
 
-REM Initialize the SQLite database if it doesn't exist
-echo Initializing database...
-python database/init_db.py
+REM Database is initialized automatically by the backend now
 
 REM Start the backend in a new command prompt window
 echo Starting FastAPI Backend...

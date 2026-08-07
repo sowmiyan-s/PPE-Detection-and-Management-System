@@ -1,5 +1,5 @@
 """
-SQLite database accessor for EdgeVision backend API & Vision Pipeline.
+MongoDB database accessor for EdgeVision backend API & Vision Pipeline.
 Provides clean query & insert helpers for violation events, worker tracks,
 cameras, and zones with proof of evidence storage.
 """
@@ -8,56 +8,74 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
 import uuid
 import logging
 import time
 from typing import Any
+from datetime import datetime, timedelta
+
+from pymongo import MongoClient
+from pymongo.errors import ConnectionFailure
+
+from src.core import config
 
 log = logging.getLogger(__name__)
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "database", "edgevision.db")
 EVIDENCE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "database", "evidence")
-
 os.makedirs(EVIDENCE_DIR, exist_ok=True)
 
+_client = None
+_db = None
+
 def get_db():
-    """Connect to SQLite database."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = OFF;")  # Avoid FK issues with text IDs
-    return conn
+    """Connect to MongoDB database and return the database instance."""
+    global _client, _db
+    if _db is None:
+        try:
+            _client = MongoClient(config.MONGODB_URI, serverSelectionTimeoutMS=5000)
+            _db = _client[config.MONGODB_DB_NAME]
+            # Verify connection
+            _client.admin.command('ping')
+            log.info(f"Connected to MongoDB at {config.MONGODB_URI}")
+        except ConnectionFailure as e:
+            log.error(f"Failed to connect to MongoDB: {e}")
+            raise
+    return _db
 
 def ensure_db():
-    """Initialize database if it doesn't exist yet."""
-    if not os.path.exists(DB_PATH):
-        log.info("Database not found at %s – initializing...", DB_PATH)
-        try:
-            import sys
-            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-            from database.init_db import init_db
-            init_db(DB_PATH)
-            log.info("Database initialized successfully.")
-        except Exception as e:
-            log.error("Failed to auto-init database: %s", e)
-    else:
-        log.info("Database found at %s. Checking for schema migrations...", DB_PATH)
-        try:
-            conn = get_db()
-            cursor = conn.cursor()
-            try:
-                cursor.execute("ALTER TABLE cameras ADD COLUMN zone_id TEXT")
-            except sqlite3.OperationalError:
-                pass
-            try:
-                cursor.execute("ALTER TABLE cameras ADD COLUMN target_fps INTEGER")
-            except sqlite3.OperationalError:
-                pass
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            log.error("Migration failed: %s", e)
+    """Initialize database collections and seed data if they don't exist yet."""
+    db = get_db()
+    
+    # Check if we need to seed zones
+    if db.zones.count_documents({}) == 0:
+        log.info("Seeding initial zones...")
+        zones = [
+            {"id": "ZONE-01", "name": "general_plant", "description": "General plant area – helmet and vest required", "required_ppe": ["helmet", "vest"]},
+            {"id": "ZONE-02", "name": "construction", "description": "Active construction – helmet, vest, boots required", "required_ppe": ["helmet", "vest", "boots"]},
+            {"id": "ZONE-03", "name": "work_at_height", "description": "Elevated work area – full harness system required", "required_ppe": ["helmet", "vest", "boots", "safety_belt", "hook"]},
+            {"id": "ZONE-04", "name": "restricted_machinery", "description": "Restricted machinery area – authorised personnel only", "required_ppe": ["helmet", "vest"]}
+        ]
+        db.zones.insert_many(zones)
 
+    # Check if we need to seed cameras
+    if db.cameras.count_documents({}) == 0:
+        log.info("Seeding initial cameras...")
+        cameras = [
+            {
+                "id": "CAM-01", 
+                "name": "EdgeVision Live AI Stream", 
+                "source": "0", 
+                "location": "Main entrance",
+                "zone_id": "ZONE-01",
+                "target_fps": 20,
+                "is_active": 1,
+                "created_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow()
+            }
+        ]
+        db.cameras.insert_many(cameras)
+        
+    log.info("MongoDB database initialized successfully.")
 
 def record_violation(
     worker_id: str,
@@ -69,28 +87,24 @@ def record_violation(
     image_path: str = "",
     model_version: str = "edgevision-ppe-v3.2-fp16"
 ) -> str:
-    """Record a violation event with image evidence into SQLite DB.
-    
-    Uses TEXT IDs directly (no FK enforcement) so the vision pipeline
-    can record violations without needing to pre-create worker_track rows.
-    """
+    """Record a violation event with image evidence into MongoDB."""
     evt_id = f"EVT-{uuid.uuid4().hex[:6].upper()}"
     try:
-        conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute(
-            """INSERT INTO violation_events (
-                id, zone_id, worker_track_id, violation_type,
-                detected_ppe, missing_ppe, confidence, image_path, model_version
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                evt_id, zone_id, worker_id, violation_type,
-                json.dumps(detected_ppe), json.dumps(missing_ppe),
-                confidence, image_path, model_version
-            )
-        )
-        conn.commit()
-        conn.close()
+        db = get_db()
+        event = {
+            "id": evt_id,
+            "zone_id": zone_id,
+            "worker_track_id": worker_id,
+            "violation_type": violation_type,
+            "detected_ppe": detected_ppe,
+            "missing_ppe": missing_ppe,
+            "confidence": confidence,
+            "image_path": image_path,
+            "model_version": model_version,
+            "timestamp": datetime.utcnow(),
+            "acknowledgement_status": "unacknowledged"
+        }
+        db.violation_events.insert_one(event)
         log.info("Recorded violation %s for %s in zone %s", evt_id, worker_id, zone_id)
     except Exception as e:
         log.error("Failed to record violation: %s", e)
@@ -99,15 +113,12 @@ def record_violation(
 def acknowledge_violation(evt_id: str) -> bool:
     """Mark a violation event as acknowledged."""
     try:
-        conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE violation_events SET acknowledgement_status = 'reviewed' WHERE id = ?",
-            (evt_id,)
+        db = get_db()
+        result = db.violation_events.update_one(
+            {"id": evt_id},
+            {"$set": {"acknowledgement_status": "reviewed"}}
         )
-        conn.commit()
-        conn.close()
-        return True
+        return result.modified_count > 0
     except Exception as e:
         log.error("Failed to acknowledge violation %s: %s", evt_id, e)
         return False
@@ -115,26 +126,32 @@ def acknowledge_violation(evt_id: str) -> bool:
 def get_violations(limit: int = 50) -> list[dict[str, Any]]:
     """Retrieve recent violation events with proof of evidence."""
     try:
-        conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute(
-            """SELECT id, zone_id as zoneId, worker_track_id as workerId, violation_type as type,
-                      detected_ppe, missing_ppe, confidence, timestamp, image_path as imagePath,
-                      acknowledgement_status as status, model_version as modelVersion
-               FROM violation_events ORDER BY timestamp DESC LIMIT ?""",
-            (limit,)
-        )
-        rows = cursor.fetchall()
-        conn.close()
+        db = get_db()
+        events = db.violation_events.find().sort("timestamp", -1).limit(limit)
         res = []
-        for r in rows:
-            d = dict(r)
-            d["detected"] = json.loads(d.pop("detected_ppe") or "[]")
-            d["missing"] = json.loads(d.pop("missing_ppe") or "[]")
-            d["acknowledged"] = d.get("status") == "reviewed"
-            # Provide fallback cameraId for frontend compatibility
-            d.setdefault("cameraId", "CAM-01")
-            res.append(d)
+        for d in events:
+            # Format timestamp as string to be consistent with previous SQLite behavior
+            ts = d.get("timestamp")
+            if isinstance(ts, datetime):
+                ts_str = ts.strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                ts_str = str(ts)
+
+            res.append({
+                "id": d.get("id"),
+                "zoneId": d.get("zone_id"),
+                "workerId": d.get("worker_track_id"),
+                "type": d.get("violation_type"),
+                "detected": d.get("detected_ppe", []),
+                "missing": d.get("missing_ppe", []),
+                "confidence": d.get("confidence", 0.0),
+                "timestamp": ts_str,
+                "imagePath": d.get("image_path", ""),
+                "status": d.get("acknowledgement_status"),
+                "modelVersion": d.get("model_version"),
+                "acknowledged": d.get("acknowledgement_status") == "reviewed",
+                "cameraId": d.get("camera_id", "CAM-01")
+            })
         return res
     except Exception as e:
         log.error("Failed to fetch violations: %s", e)
@@ -143,24 +160,16 @@ def get_violations(limit: int = 50) -> list[dict[str, Any]]:
 def get_zones() -> list[dict[str, Any]]:
     """Retrieve configured safety zones with their required PPE."""
     try:
-        conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT z.id, z.name, z.description,
-                   GROUP_CONCAT(p.name) as required_ppe_names
-            FROM zones z
-            LEFT JOIN zone_ppe_rules zpr ON z.id = zpr.zone_id
-            LEFT JOIN ppe_types p ON zpr.ppe_type_id = p.id
-            GROUP BY z.id, z.name, z.description
-        """)
-        rows = cursor.fetchall()
-        conn.close()
+        db = get_db()
+        zones = db.zones.find()
         result = []
-        for r in rows:
-            d = dict(r)
-            ppe_names = d.pop("required_ppe_names", None)
-            d["required_ppe"] = ppe_names.split(",") if ppe_names else []
-            result.append(d)
+        for d in zones:
+            result.append({
+                "id": d.get("id"),
+                "name": d.get("name"),
+                "description": d.get("description"),
+                "required_ppe": d.get("required_ppe", [])
+            })
         return result
     except Exception as e:
         log.error("Failed to fetch zones: %s", e)
@@ -169,20 +178,21 @@ def get_zones() -> list[dict[str, Any]]:
 def save_zone(zone_data: dict) -> bool:
     """Insert or update safety zone configuration in DB."""
     try:
-        conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute(
-            """INSERT INTO zones (id, name, description)
-               VALUES (?, ?, ?)
-               ON CONFLICT(id) DO UPDATE SET name=excluded.name, description=excluded.description""",
-            (
-                zone_data.get("id", f"ZONE-{uuid.uuid4().hex[:4].upper()}"),
-                zone_data.get("name", "Custom Zone"),
-                zone_data.get("kind", zone_data.get("description", "General plant"))
-            )
+        db = get_db()
+        zone_id = zone_data.get("id", f"ZONE-{uuid.uuid4().hex[:4].upper()}")
+        
+        update_doc = {
+            "name": zone_data.get("name", "Custom Zone"),
+            "description": zone_data.get("kind", zone_data.get("description", "General plant"))
+        }
+        if "required_ppe" in zone_data:
+            update_doc["required_ppe"] = zone_data["required_ppe"]
+            
+        db.zones.update_one(
+            {"id": zone_id},
+            {"$set": update_doc},
+            upsert=True
         )
-        conn.commit()
-        conn.close()
         return True
     except Exception as e:
         log.error("Failed to save zone: %s", e)
@@ -191,48 +201,40 @@ def save_zone(zone_data: dict) -> bool:
 def get_workers() -> list[dict[str, Any]]:
     """Retrieve tracked worker compliance scores calculated from real DB events."""
     try:
-        conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute(
-            """SELECT worker_track_id as id,
-                      COUNT(*) as total_incidents,
-                      MIN(timestamp) as first_seen,
-                      MAX(timestamp) as last_seen,
-                      zone_id
-               FROM violation_events
-               GROUP BY worker_track_id ORDER BY total_incidents DESC"""
-        )
-        rows = cursor.fetchall()
-
-        # Get total events for compliance calculation
-        cursor.execute("SELECT COUNT(DISTINCT worker_track_id) as tracked FROM violation_events")
-        total_row = cursor.fetchone()
-        conn.close()
-
+        db = get_db()
+        
+        pipeline = [
+            {
+                "$group": {
+                    "_id": "$worker_track_id",
+                    "total_incidents": {"$sum": 1},
+                    "first_seen": {"$min": "$timestamp"},
+                    "last_seen": {"$max": "$timestamp"},
+                    "zone_id": {"$first": "$zone_id"}
+                }
+            },
+            {"$sort": {"total_incidents": -1}}
+        ]
+        
+        results = db.violation_events.aggregate(pipeline)
+        
         res = []
-        for r in rows:
-            incidents = r["total_incidents"]
-            # Compliance: start at 100, deduct 3% per incident, floor at 50%
+        for r in results:
+            incidents = r.get("total_incidents", 0)
             compliance = max(50, 100 - (incidents * 3))
-
-            # Calculate approximate hours tracked from first_seen to last_seen
-            hours_tracked = 0
-            if r["first_seen"] and r["last_seen"]:
-                try:
-                    from datetime import datetime
-                    fmt = "%Y-%m-%d %H:%M:%S"
-                    first = datetime.strptime(str(r["first_seen"])[:19], fmt)
-                    last = datetime.strptime(str(r["last_seen"])[:19], fmt)
-                    hours_tracked = max(1, int((last - first).total_seconds() / 3600))
-                except Exception:
-                    hours_tracked = 1
-
+            
+            first = r.get("first_seen")
+            last = r.get("last_seen")
+            hours_tracked = 1
+            if first and last and isinstance(first, datetime) and isinstance(last, datetime):
+                hours_tracked = max(1, int((last - first).total_seconds() / 3600))
+                
             res.append({
-                "id": r["id"],
-                "name": r["id"],
+                "id": r["_id"],
+                "name": r["_id"],
                 "crew": "Inference Crew",
                 "shift": "Shift A (06–14)",
-                "primaryZone": r["zone_id"] or "ZONE-01",
+                "primaryZone": r.get("zone_id") or "ZONE-01",
                 "compliance": compliance,
                 "incidents": incidents,
                 "hoursTracked": hours_tracked
@@ -245,72 +247,72 @@ def get_workers() -> list[dict[str, Any]]:
 def get_reports() -> dict[str, Any]:
     """Calculate aggregated safety compliance reporting from DB."""
     try:
-        conn = get_db()
-        cursor = conn.cursor()
-
-        # Total violations
-        cursor.execute("SELECT COUNT(*) as total FROM violation_events")
-        total_violations = cursor.fetchone()["total"]
-
+        db = get_db()
+        
+        total_violations = db.violation_events.count_documents({})
+        
         # Violations by zone
-        cursor.execute("SELECT zone_id, COUNT(*) as count FROM violation_events GROUP BY zone_id")
-        by_zone = [dict(r) for r in cursor.fetchall()]
-
-        # Average confidence across all violations
-        cursor.execute("SELECT AVG(confidence) as avg_conf FROM violation_events")
-        avg_conf_row = cursor.fetchone()
-        avg_conf = avg_conf_row["avg_conf"] if avg_conf_row["avg_conf"] else 0.0
-
-        # Unique workers tracked
-        cursor.execute("SELECT COUNT(DISTINCT worker_track_id) as workers FROM violation_events")
-        unique_workers = cursor.fetchone()["workers"]
-
-        # Reviewed vs total for compliance rate
-        cursor.execute(
-            "SELECT COUNT(*) as reviewed FROM violation_events WHERE acknowledgement_status = 'reviewed'"
-        )
-        reviewed = cursor.fetchone()["reviewed"]
-
-        # Violations per hour (calculate from timestamp range)
-        cursor.execute(
-            """SELECT MIN(timestamp) as first_ts, MAX(timestamp) as last_ts
-               FROM violation_events"""
-        )
-        ts_row = cursor.fetchone()
+        pipeline_zone = [{"$group": {"_id": "$zone_id", "count": {"$sum": 1}}}]
+        by_zone_results = db.violation_events.aggregate(pipeline_zone)
+        by_zone = [{"zone_id": r["_id"], "count": r["count"]} for r in by_zone_results]
+        
+        # Average confidence
+        pipeline_conf = [{"$group": {"_id": None, "avg_conf": {"$avg": "$confidence"}}}]
+        conf_results = list(db.violation_events.aggregate(pipeline_conf))
+        avg_conf = conf_results[0]["avg_conf"] if conf_results else 0.0
+        
+        # Unique workers
+        unique_workers = len(db.violation_events.distinct("worker_track_id"))
+        
+        # Reviewed
+        reviewed = db.violation_events.count_documents({"acknowledgement_status": "reviewed"})
+        
+        # Violations per hour
+        pipeline_ts = [
+            {
+                "$group": {
+                    "_id": None,
+                    "first_ts": {"$min": "$timestamp"},
+                    "last_ts": {"$max": "$timestamp"}
+                }
+            }
+        ]
+        ts_results = list(db.violation_events.aggregate(pipeline_ts))
+        
         violations_per_hour = 0.0
         total_hours = 1.0
-        if ts_row["first_ts"] and ts_row["last_ts"] and total_violations > 0:
-            try:
-                from datetime import datetime
-                fmt = "%Y-%m-%d %H:%M:%S"
-                first = datetime.strptime(str(ts_row["first_ts"])[:19], fmt)
-                last = datetime.strptime(str(ts_row["last_ts"])[:19], fmt)
+        if ts_results and ts_results[0].get("first_ts") and ts_results[0].get("last_ts"):
+            first = ts_results[0]["first_ts"]
+            last = ts_results[0]["last_ts"]
+            if isinstance(first, datetime) and isinstance(last, datetime):
                 total_hours = max(1.0, (last - first).total_seconds() / 3600)
                 violations_per_hour = round(total_violations / total_hours, 1)
-            except Exception:
-                pass
 
-        # Compliance: ratio of compliant checks vs total
-        # Higher violations = lower compliance
         avg_compliance = max(60, 100 - int(total_violations * 2 / max(1, total_hours)))
-
-        # Weekly trend data from DB
-        cursor.execute(
-            """SELECT DATE(timestamp) as day, COUNT(*) as violations
-               FROM violation_events
-               WHERE timestamp >= datetime('now', '-7 days')
-               GROUP BY DATE(timestamp)
-               ORDER BY day"""
-        )
+        
+        # Weekly trend
+        week_ago = datetime.utcnow() - timedelta(days=7)
+        pipeline_trend = [
+            {"$match": {"timestamp": {"$gte": week_ago}}},
+            {
+                "$group": {
+                    "_id": {
+                        "$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}
+                    },
+                    "violations": {"$sum": 1}
+                }
+            },
+            {"$sort": {"_id": 1}}
+        ]
+        trend_results = db.violation_events.aggregate(pipeline_trend)
         daily_trend = []
-        for r in cursor.fetchall():
+        for r in trend_results:
             daily_trend.append({
-                "day": r["day"],
+                "day": r["_id"],
                 "violations": r["violations"],
                 "compliance": max(70, 100 - r["violations"] * 2)
             })
 
-        conn.close()
         return {
             "total_violations": total_violations,
             "avg_compliance": avg_compliance,
@@ -332,43 +334,26 @@ def get_reports() -> dict[str, Any]:
             "violations_per_hour": 0.0,
         }
 
-
 def get_stats() -> dict[str, Any]:
     """Get live overview stats for the dashboard."""
     try:
-        conn = get_db()
-        cursor = conn.cursor()
-
-        # Active violations (unacknowledged)
-        cursor.execute(
-            "SELECT COUNT(*) as c FROM violation_events WHERE acknowledgement_status != 'reviewed'"
-        )
-        active_violations = cursor.fetchone()["c"]
-
-        # Total violations today
-        cursor.execute(
-            "SELECT COUNT(*) as c FROM violation_events WHERE DATE(timestamp) = DATE('now')"
-        )
-        violations_today = cursor.fetchone()["c"]
-
-        # Unique workers tracked today
-        cursor.execute(
-            """SELECT COUNT(DISTINCT worker_track_id) as c
-               FROM violation_events WHERE DATE(timestamp) = DATE('now')"""
-        )
-        workers_today = cursor.fetchone()["c"]
-
-        # Cameras count
-        cursor.execute("SELECT COUNT(*) as c FROM cameras WHERE is_active = 1")
-        cameras_online = cursor.fetchone()["c"]
-
-        # Total cameras
-        cursor.execute("SELECT COUNT(*) as c FROM cameras")
-        cameras_total = cursor.fetchone()["c"]
-
-        conn.close()
-
-        # Compliance: 100% if no violations, scales down
+        db = get_db()
+        
+        active_violations = db.violation_events.count_documents({"acknowledgement_status": {"$ne": "reviewed"}})
+        
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        violations_today = db.violation_events.count_documents({"timestamp": {"$gte": today_start}})
+        
+        # Unique workers today
+        pipeline_workers_today = [
+            {"$match": {"timestamp": {"$gte": today_start}}},
+            {"$group": {"_id": "$worker_track_id"}}
+        ]
+        workers_today = len(list(db.violation_events.aggregate(pipeline_workers_today)))
+        
+        cameras_online = db.cameras.count_documents({"is_active": 1})
+        cameras_total = db.cameras.count_documents({})
+        
         compliance = max(60, 100 - (active_violations * 3)) if active_violations > 0 else 100
 
         return {
@@ -387,47 +372,47 @@ def get_stats() -> dict[str, Any]:
             "workers_tracked": 0, "daily_compliance": 100,
         }
 
-
 def get_cameras() -> list[dict[str, Any]]:
     """Retrieve registered cameras from DB."""
     try:
-        conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT id, name, source, location, is_active, zone_id, target_fps FROM cameras ORDER BY id"
-        )
-        rows = [dict(r) for r in cursor.fetchall()]
-        conn.close()
+        db = get_db()
+        cameras = db.cameras.find().sort("id", 1)
+        rows = []
+        for c in cameras:
+            rows.append({
+                "id": c.get("id"),
+                "name": c.get("name"),
+                "source": c.get("source"),
+                "location": c.get("location"),
+                "is_active": c.get("is_active", 1),
+                "zone_id": c.get("zone_id"),
+                "target_fps": c.get("target_fps", 20)
+            })
         return rows
     except Exception as e:
         log.error("Failed to fetch cameras: %s", e)
         return []
 
-
 def save_camera(cam_data: dict) -> bool:
     """Insert or update a camera in DB."""
     try:
-        conn = get_db()
-        cursor = conn.cursor()
+        db = get_db()
         cam_id = cam_data.get("id", f"CAM-{uuid.uuid4().hex[:4].upper()}")
-        cursor.execute(
-            """INSERT INTO cameras (id, name, source, location, zone_id, target_fps)
-               VALUES (?, ?, ?, ?, ?, ?)
-               ON CONFLICT(id) DO UPDATE SET
-                   name=excluded.name, source=excluded.source, location=excluded.location,
-                   zone_id=excluded.zone_id, target_fps=excluded.target_fps,
-                   updated_at=CURRENT_TIMESTAMP""",
-            (
-                cam_id,
-                cam_data.get("name", "New Camera"),
-                cam_data.get("source", cam_data.get("streamUrl", "0")),
-                cam_data.get("location", ""),
-                cam_data.get("zoneId", "ZONE-01"),
-                cam_data.get("targetFps", 20),
-            )
+        
+        db.cameras.update_one(
+            {"id": cam_id},
+            {
+                "$set": {
+                    "name": cam_data.get("name", "New Camera"),
+                    "source": cam_data.get("source", cam_data.get("streamUrl", "0")),
+                    "location": cam_data.get("location", ""),
+                    "zone_id": cam_data.get("zoneId", "ZONE-01"),
+                    "target_fps": cam_data.get("targetFps", 20),
+                    "updated_at": datetime.utcnow()
+                }
+            },
+            upsert=True
         )
-        conn.commit()
-        conn.close()
         return True
     except Exception as e:
         log.error("Failed to save camera: %s", e)

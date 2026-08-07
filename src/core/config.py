@@ -4,6 +4,9 @@ All tuneable values live here; environment variables override where relevant.
 """
 
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # ── MQTT ──────────────────────────────────────────────────────────────────────
 MQTT_BROKER   = os.getenv("MQTT_BROKER", "test.mosquitto.org")
@@ -59,6 +62,11 @@ DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql://ppe_user:ppe_pass@localhost:5432/ppe_db"
 )
+MONGODB_URI = os.getenv(
+    "MONGODB_URI",
+    "mongodb://localhost:27017"
+)
+MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "edgevision")
 
 # ── Web server ────────────────────────────────────────────────────────────────
 SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")

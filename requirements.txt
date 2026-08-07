@@ -17,7 +17,8 @@ websockets>=12.0
 # ── Messaging ─────────────────────────────────────────────────────────────────
 paho-mqtt>=1.6.1
 
-# ── Database (optional – for production persistence) ──────────────────────────
+# ── Database ──────────────────────────────────────────────────────────────────
+pymongo>=4.6.0           # MongoDB driver
 # psycopg2-binary>=2.9.9   # PostgreSQL driver
 # sqlalchemy>=2.0.0        # ORM (optional)
 # alembic>=1.13.0          # migrations (optional)

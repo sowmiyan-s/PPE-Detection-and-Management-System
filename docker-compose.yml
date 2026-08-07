@@ -1,6 +1,7 @@
 version: '3.8'
 
 services:
+
   backend:
     build:
       context: .
@@ -11,6 +12,7 @@ services:
     environment:
       - SERVER_HOST=0.0.0.0
       - SERVER_PORT=8000
+      - MONGODB_URI=mongodb+srv://rdxsparrowgaming_db_user:DBL67D8Qc0RcqlCf@cluster0.er22sa5.mongodb.net/?appName=Cluster0
     volumes:
       - ./models:/app/models
       - ./experiments:/app/experiments
