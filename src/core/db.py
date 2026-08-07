@@ -41,7 +41,22 @@ def ensure_db():
         except Exception as e:
             log.error("Failed to auto-init database: %s", e)
     else:
-        log.info("Database found at %s", DB_PATH)
+        log.info("Database found at %s. Checking for schema migrations...", DB_PATH)
+        try:
+            conn = get_db()
+            cursor = conn.cursor()
+            try:
+                cursor.execute("ALTER TABLE cameras ADD COLUMN zone_id TEXT")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                cursor.execute("ALTER TABLE cameras ADD COLUMN target_fps INTEGER")
+            except sqlite3.OperationalError:
+                pass
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            log.error("Migration failed: %s", e)
 
 
 def record_violation(
@@ -379,7 +394,7 @@ def get_cameras() -> list[dict[str, Any]]:
         conn = get_db()
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT id, name, source, location, is_active FROM cameras ORDER BY id"
+            "SELECT id, name, source, location, is_active, zone_id, target_fps FROM cameras ORDER BY id"
         )
         rows = [dict(r) for r in cursor.fetchall()]
         conn.close()
@@ -396,16 +411,19 @@ def save_camera(cam_data: dict) -> bool:
         cursor = conn.cursor()
         cam_id = cam_data.get("id", f"CAM-{uuid.uuid4().hex[:4].upper()}")
         cursor.execute(
-            """INSERT INTO cameras (id, name, source, location)
-               VALUES (?, ?, ?, ?)
+            """INSERT INTO cameras (id, name, source, location, zone_id, target_fps)
+               VALUES (?, ?, ?, ?, ?, ?)
                ON CONFLICT(id) DO UPDATE SET
                    name=excluded.name, source=excluded.source, location=excluded.location,
+                   zone_id=excluded.zone_id, target_fps=excluded.target_fps,
                    updated_at=CURRENT_TIMESTAMP""",
             (
                 cam_id,
                 cam_data.get("name", "New Camera"),
                 cam_data.get("source", cam_data.get("streamUrl", "0")),
                 cam_data.get("location", ""),
+                cam_data.get("zoneId", "ZONE-01"),
+                cam_data.get("targetFps", 20),
             )
         )
         conn.commit()

@@ -41,10 +41,33 @@ log = logging.getLogger(__name__)
 pipeline: VisionPipeline | None = None
 camera:   cv2.VideoCapture | None = None
 _active_zone = config.DEFAULT_ZONE
+_active_camera_id = "CAM-01"
 _fps_stats: dict = {"fps": 0.0, "frame_count": 0, "start_time": time.time()}
 
 
 # ── WebSocket connection manager ───────────────────────────────────────────────
+
+def open_camera_source(source: str) -> cv2.VideoCapture:
+    """Helper to open webcam indices, RTSP URLs, or extract YouTube streams."""
+    if source.isdigit():
+        return cv2.VideoCapture(int(source))
+    
+    if "youtube.com" in source or "youtu.be" in source:
+        try:
+            import yt_dlp
+            ydl_opts = {"format": "best[ext=mp4]", "quiet": True}
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(source, download=False)
+                url = info.get("url", source)
+            return cv2.VideoCapture(url)
+        except ImportError:
+            log.warning("yt-dlp not installed, cannot resolve youtube URL natively")
+        except Exception as e:
+            log.warning("Failed to extract youtube stream: %s", e)
+    
+    # Direct RTSP/HTTP or other valid string sources
+    return cv2.VideoCapture(source)
+
 
 class ConnectionManager:
     def __init__(self) -> None:
@@ -89,13 +112,13 @@ async def lifespan(app: FastAPI):
 
     try:
         pipeline = VisionPipeline(zone=_active_zone)
-        camera   = cv2.VideoCapture(config.DEFAULT_CAMERA_INDEX)
+        camera   = open_camera_source(str(config.DEFAULT_CAMERA_INDEX))
         if not camera.isOpened():
             log.warning("Physical webcam %s not available – falling back to sample video feed",
                         config.DEFAULT_CAMERA_INDEX)
             sample_video = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "sample_feed.mp4")
             if os.path.exists(sample_video):
-                camera = cv2.VideoCapture(sample_video)
+                camera = open_camera_source(sample_video)
                 log.info("Loaded sample video feed from %s", sample_video)
             else:
                 log.error("Sample video feed not found at %s", sample_video)
@@ -400,13 +423,13 @@ async def get_cameras_api():
     db_cameras = db.get_cameras()
     result = []
     for cam in db_cameras:
-        is_live = cam["id"] == "CAM-01" and camera is not None and camera.isOpened()
+        is_live = cam["id"] == _active_camera_id and camera is not None and camera.isOpened()
         result.append({
             "id": cam["id"],
             "name": cam["name"],
-            "zoneId": _active_zone if cam["id"] == "CAM-01" else "ZONE-01",
+            "zoneId": cam.get("zone_id") or (_active_zone if cam["id"] == _active_camera_id else "ZONE-01"),
             "resolution": "1920×1080",
-            "targetFps": config.TARGET_FPS,
+            "targetFps": cam.get("target_fps") or config.TARGET_FPS,
             "actualFps": _fps_stats["fps"] if is_live else 0.0,
             "latencyMs": round(1000.0 / max(1, _fps_stats["fps"]), 1) if is_live else 0.0,
             "status": "online" if is_live else "offline",
@@ -428,11 +451,55 @@ async def get_cameras_api():
         })
     return JSONResponse(result)
 
+@app.get("/api/devices/cameras")
+async def list_physical_cameras():
+    """Probe local indices to discover attached physical webcams."""
+    available = []
+    # Quick probe of first 5 ports
+    for i in range(5):
+        cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+        if not cap.isOpened():
+            cap = cv2.VideoCapture(i)
+        
+        if cap.isOpened():
+            available.append({"id": str(i), "name": f"Webcam {i}"})
+            cap.release()
+    return JSONResponse(available)
+
 @app.post("/api/cameras")
 async def add_camera_api(body: dict):
     """Register a new camera in the database."""
     ok = db.save_camera(body)
     return JSONResponse({"success": ok})
+
+@app.post("/api/cameras/{cam_id}/activate")
+async def activate_camera_api(cam_id: str):
+    """Switch the live camera feed dynamically."""
+    global camera, _active_camera_id, _fps_stats
+    
+    db_cameras = db.get_cameras()
+    cam_data = next((c for c in db_cameras if c["id"] == cam_id), None)
+    if not cam_data:
+        return JSONResponse({"error": "Camera not found"}, status_code=404)
+    
+    source = cam_data.get("source", "0")
+    log.info("Switching active camera to %s (source: %s)", cam_id, source)
+    
+    new_cam = open_camera_source(str(source))
+    if not new_cam.isOpened():
+        return JSONResponse({"error": f"Failed to open source: {source}"}, status_code=400)
+    
+    new_cam.set(cv2.CAP_PROP_FRAME_WIDTH, config.FRAME_WIDTH)
+    new_cam.set(cv2.CAP_PROP_FRAME_HEIGHT, config.FRAME_HEIGHT)
+    
+    old_cam = camera
+    camera = new_cam
+    _active_camera_id = cam_id
+    _fps_stats = {"fps": 0.0, "frame_count": 0, "start_time": time.time()}
+    if old_cam and old_cam.isOpened():
+        old_cam.release()
+        
+    return JSONResponse({"success": True, "activeCameraId": cam_id})
 
 @app.get("/api/model-metrics")
 async def get_model_metrics():

@@ -26,8 +26,10 @@ function CamerasPage() {
   const [loading, setLoading] = useState(true);
 
   // Form state
+  const [cameraType, setCameraType] = useState("webcam");
+  const [physicalCams, setPhysicalCams] = useState<{ id: string; name: string }[]>([]);
   const [formName, setFormName] = useState("");
-  const [formUrl, setFormUrl] = useState("");
+  const [formUrl, setFormUrl] = useState("0");
   const [formZone, setFormZone] = useState("");
   const [formFps, setFormFps] = useState("20");
 
@@ -35,17 +37,30 @@ function CamerasPage() {
     Promise.allSettled([
       fetch("/api/cameras").then((res) => (res.ok ? res.json() : [])),
       fetch("/api/zones").then((res) => (res.ok ? res.json() : { db_zones: [] })),
-    ]).then(([camerasRes, zonesRes]) => {
+      fetch("/api/devices/cameras").then((res) => (res.ok ? res.json() : [])),
+    ]).then(([camerasRes, zonesRes, devRes]) => {
       if (camerasRes.status === "fulfilled" && Array.isArray(camerasRes.value)) {
         setCameraList(camerasRes.value);
       }
       if (zonesRes.status === "fulfilled") {
-        const data = zonesRes.value;
-        setZoneList(data.db_zones || []);
+        setZoneList(zonesRes.value.db_zones || []);
+      }
+      if (devRes.status === "fulfilled" && Array.isArray(devRes.value)) {
+        setPhysicalCams(devRes.value);
+        if (devRes.value.length > 0) setFormUrl(devRes.value[0].id);
       }
       setLoading(false);
     });
   }, []);
+
+  const handleTypeChange = (t: string) => {
+    setCameraType(t);
+    if (t === "webcam") {
+      setFormUrl(physicalCams.length > 0 ? physicalCams[0].id : "0");
+    } else {
+      setFormUrl("");
+    }
+  };
 
   const handleAddCamera = (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,6 +94,13 @@ function CamerasPage() {
     setFormFps("20");
   };
 
+  const handleActivate = (camId: string) => {
+    fetch(`/api/cameras/${camId}/activate`, { method: "POST" })
+      .then(() => fetch("/api/cameras").then((res) => (res.ok ? res.json() : [])))
+      .then((data) => { if (Array.isArray(data)) setCameraList(data); })
+      .catch((err) => console.error("Failed to activate camera", err));
+  };
+
   return (
     <AppShell>
       <PageHeader
@@ -100,7 +122,37 @@ function CamerasPage() {
           className="mb-3 grid gap-3 rounded panel-surface p-4 md:grid-cols-2 xl:grid-cols-4"
         >
           <Field label="Camera name" placeholder="Silo Platform East" value={formName} onChange={setFormName} />
-          <Field label="RTSP stream URL" placeholder="rtsp://10.20.4.17/stream1" value={formUrl} onChange={setFormUrl} />
+          <label className="block">
+            <span className="display-title text-[10px] text-muted-foreground">Camera Type</span>
+            <select
+              value={cameraType}
+              onChange={(e) => handleTypeChange(e.target.value)}
+              className="telemetry mt-1 w-full rounded border border-input bg-background/60 px-3 py-2 text-sm outline-none focus:border-primary"
+            >
+              <option value="webcam">Local Webcam</option>
+              <option value="youtube">YouTube Stream</option>
+              <option value="stream">RTSP / Direct Stream</option>
+            </select>
+          </label>
+          {cameraType === "webcam" ? (
+            <label className="block">
+              <span className="display-title text-[10px] text-muted-foreground">Select Webcam</span>
+              <select
+                value={formUrl}
+                onChange={(e) => setFormUrl(e.target.value)}
+                className="telemetry mt-1 w-full rounded border border-input bg-background/60 px-3 py-2 text-sm outline-none focus:border-primary"
+              >
+                {physicalCams.length === 0 && <option value="0">Default (0)</option>}
+                {physicalCams.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} (Index {c.id})
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <Field label={cameraType === "youtube" ? "YouTube URL" : "Stream URL (RTSP/HTTP)"} placeholder="https://..." value={formUrl} onChange={setFormUrl} />
+          )}
           <label className="block">
             <span className="display-title text-[10px] text-muted-foreground">Zone</span>
             <select
@@ -139,18 +191,19 @@ function CamerasPage() {
               <th className="px-3 py-2.5">Actual FPS</th>
               <th className="px-3 py-2.5">Latency</th>
               <th className="px-3 py-2.5">Status</th>
+              <th className="px-3 py-2.5 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {loading ? (
               <tr>
-                <td colSpan={7} className="px-3 py-8 text-center text-sm text-muted-foreground animate-pulse">
+                <td colSpan={8} className="px-3 py-8 text-center text-sm text-muted-foreground animate-pulse">
                   Loading camera registry...
                 </td>
               </tr>
             ) : cameraList.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-3 py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={8} className="px-3 py-8 text-center text-sm text-muted-foreground">
                   No active camera streams configured in backend database.
                 </td>
               </tr>
@@ -182,6 +235,16 @@ function CamerasPage() {
                   </td>
                   <td className="px-3 py-2.5">
                     <StatusDot status={c.status} />
+                  </td>
+                  <td className="px-3 py-2.5 text-right">
+                    {c.status !== "online" && (
+                      <button
+                        onClick={() => handleActivate(c.id)}
+                        className="display-title rounded border border-primary/20 bg-primary/10 px-2 py-1 text-[10px] text-primary hover:bg-primary hover:text-primary-foreground"
+                      >
+                        Set Active
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))

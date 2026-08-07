@@ -28,3 +28,4 @@ pytest-mock>=3.14.0
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
 python-dotenv>=1.0.0     # load .env files
+yt-dlp>=2023.12.30       # youtube stream extraction
