@@ -116,8 +116,11 @@ os.makedirs(EVIDENCE_DIR, exist_ok=True)
 async def lifespan(app: FastAPI):
     global pipeline, camera
 
-    # Auto-initialize database
-    await db.ensure_db()
+    # Auto-initialize database safely
+    try:
+        await db.ensure_db()
+    except Exception as err:
+        log.warning("Initial DB connection warning (server will start and retry): %s", err)
 
     try:
         pipeline = VisionPipeline(zone=_active_zone)
