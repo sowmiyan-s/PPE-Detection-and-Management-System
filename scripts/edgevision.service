@@ -1,0 +1,17 @@
+[Unit]
+Description=EdgeVision Industrial PPE Compliance & Safety Platform Daemon
+After=network.target mongodb.service
+
+[Service]
+Type=simple
+User=jetson
+WorkingDirectory=/opt/edgevision
+ExecStart=/usr/bin/python3 -m src.api.server
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+Environment=TARGET_FPS=20
+Environment=DETECTION_CONF=0.20
+
+[Install]
+WantedBy=multi-user.target

@@ -21,10 +21,22 @@ export const Route = createFileRoute("/violations")({
 
 type ExtendedViolationEvent = ViolationEvent & {
   imageBase64?: string;
+  videoPath?: string;
 };
 
-function Evidence({ imagePath, imageBase64, missing }: { imagePath?: string; imageBase64?: string; missing: string[] }) {
+function Evidence({ imagePath, imageBase64, videoPath, missing }: { imagePath?: string; imageBase64?: string; videoPath?: string; missing: string[] }) {
   const imgSrc = imageBase64 || imagePath;
+
+  if (videoPath) {
+    return (
+      <div className="relative aspect-video w-48 shrink-0 overflow-hidden rounded border border-destructive/50 bg-black shadow-inner">
+        <video src={videoPath} controls className="size-full object-cover" />
+        <span className="telemetry absolute top-1 left-1 rounded-sm bg-primary/90 px-1 py-0.5 text-[9px] text-primary-foreground font-mono font-bold tracking-wider">
+          MP4 CLIP
+        </span>
+      </div>
+    );
+  }
 
   if (imgSrc) {
     return (
@@ -158,7 +170,7 @@ function ViolationsPage() {
               >
                 <div className="hazard-stripe absolute inset-y-0 left-0 w-1.5" />
                 <div className="flex flex-col gap-4 pl-6 pr-4 py-4 lg:flex-row lg:items-center">
-                  <Evidence imagePath={v.imagePath} imageBase64={v.imageBase64} missing={v.missing} />
+                  <Evidence imagePath={v.imagePath} imageBase64={v.imageBase64} videoPath={v.videoPath} missing={v.missing} />
 
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">

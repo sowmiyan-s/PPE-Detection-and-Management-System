@@ -31,17 +31,24 @@ class ZoneConfig:
     name: str
     required_ppe: set[str]
     description: str = ""
+    authorised_workers: set[str] = field(default_factory=set)
 
     def check_compliance(
         self,
-        worker_id: int,
+        worker_id: int | str,
         detected_ppe: set[str],
         confidence: float = 1.0,
     ) -> ComplianceResult:
-        missing = self.required_ppe - detected_ppe
-        extra   = detected_ppe - self.required_ppe
+        missing = set(self.required_ppe - detected_ppe)
+        
+        # Check restricted zone authorization if configured
+        w_str = f"Worker-{worker_id}" if isinstance(worker_id, int) else str(worker_id)
+        if self.authorised_workers and w_str not in self.authorised_workers:
+            missing.add("unauthorised_entry")
+
+        extra = detected_ppe - self.required_ppe
         return ComplianceResult(
-            worker_id=worker_id,
+            worker_id=worker_id if isinstance(worker_id, int) else 0,
             zone=self.name,
             required_ppe=set(self.required_ppe),
             detected_ppe=set(detected_ppe),

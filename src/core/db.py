@@ -49,10 +49,10 @@ async def ensure_db():
     if count_zones == 0:
         log.info("Seeding initial zones...")
         zones = [
-            {"id": "ZONE-01", "name": "general_plant", "description": "General plant area – helmet and vest required", "required_ppe": ["helmet", "vest"]},
-            {"id": "ZONE-02", "name": "construction", "description": "Active construction – helmet, vest, boots required", "required_ppe": ["helmet", "vest", "boots"]},
-            {"id": "ZONE-03", "name": "work_at_height", "description": "Elevated work area – full harness system required", "required_ppe": ["helmet", "vest", "boots", "safety_belt", "hook"]},
-            {"id": "ZONE-04", "name": "restricted_machinery", "description": "Restricted machinery area – authorised personnel only", "required_ppe": ["helmet", "vest"]}
+            {"id": "ZONE-01", "name": "general_plant", "description": "General plant area – helmet and vest required", "required_ppe": ["helmet", "vest"], "authorised_workers": []},
+            {"id": "ZONE-02", "name": "construction", "description": "Active construction – helmet, vest, boots required", "required_ppe": ["helmet", "vest", "boots"], "authorised_workers": []},
+            {"id": "ZONE-03", "name": "work_at_height", "description": "Elevated work area – full harness system required", "required_ppe": ["helmet", "vest", "boots", "safety_belt", "hook"], "authorised_workers": []},
+            {"id": "ZONE-04", "name": "restricted_machinery", "description": "Restricted machinery area – authorised personnel only", "required_ppe": ["helmet", "vest"], "authorised_workers": ["Worker-101", "Worker-102"]}
         ]
         await db.zones.insert_many(zones)
 
@@ -74,8 +74,27 @@ async def ensure_db():
             }
         ]
         await db.cameras.insert_many(cameras)
+
+    # Seed roles if empty
+    if await db.roles.count_documents({}) == 0:
+        await db.roles.insert_many([
+            {"role_id": "ROLE-ADMIN", "name": "Safety Manager", "permissions": ["read", "write", "acknowledge", "delete"]},
+            {"role_id": "ROLE-OPERATOR", "name": "Plant Operator", "permissions": ["read", "acknowledge"]}
+        ])
+
+    # Seed users if empty
+    if await db.users.count_documents({}) == 0:
+        await db.users.insert_many([
+            {"user_id": "USR-01", "username": "admin", "role": "ROLE-ADMIN", "email": "admin@factory.com"},
+            {"user_id": "USR-02", "username": "operator", "role": "ROLE-OPERATOR", "email": "op@factory.com"}
+        ])
+
+    # Ensure collections exist
+    for col in ["audit_logs", "alert_deliveries", "worker_tracks"]:
+        if col not in await db.list_collection_names():
+            await db.create_collection(col)
         
-    log.info("MongoDB database initialized successfully.")
+    log.info("MongoDB database initialized successfully with required collections.")
 
 async def record_violation(
     worker_id: str,
@@ -86,10 +105,11 @@ async def record_violation(
     confidence: float,
     image_path: str = "",
     image_base64: str = "",
+    video_path: str = "",
     camera_id: str = "CAM-01",
     model_version: str = "edgevision-ppe-v3.2-fp16"
 ) -> str:
-    """Record a violation event with image evidence directly in MongoDB."""
+    """Record a violation event with image/video evidence directly in MongoDB."""
     evt_id = f"EVT-{uuid.uuid4().hex[:6].upper()}"
     try:
         db = get_db()
@@ -104,11 +124,21 @@ async def record_violation(
             "confidence": confidence,
             "image_path": image_path,
             "image_base64": image_base64,
+            "video_path": video_path,
             "model_version": model_version,
             "timestamp": datetime.utcnow(),
             "acknowledgement_status": "unacknowledged"
         }
         await db.violation_events.insert_one(event)
+
+        # Audit log record
+        await db.audit_logs.insert_one({
+            "action": "VIOLATION_RECORDED",
+            "evt_id": evt_id,
+            "worker_id": worker_id,
+            "timestamp": datetime.utcnow()
+        })
+
         log.info("Recorded violation %s for %s (camera: %s, zone: %s)", evt_id, worker_id, camera_id, zone_id)
     except Exception as e:
         log.error("Failed to record violation: %s", e)
@@ -182,6 +212,7 @@ async def get_violations(limit: int = 100) -> list[dict[str, Any]]:
                 "timestamp": ts_str,
                 "imagePath": d.get("image_path", ""),
                 "imageBase64": d.get("image_base64", ""),
+                "videoPath": d.get("video_path", ""),
                 "status": d.get("acknowledgement_status"),
                 "modelVersion": d.get("model_version"),
                 "acknowledged": d.get("acknowledgement_status") == "reviewed",

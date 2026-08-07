@@ -161,7 +161,10 @@ app.add_middleware(
 app.mount("/api/evidence", StaticFiles(directory=EVIDENCE_DIR), name="evidence")
 
 
+from collections import deque
+
 _active_source = "0"
+frame_buffer: deque = deque(maxlen=60)
 
 # ── Vision loop ────────────────────────────────────────────────────────────────
 
@@ -221,16 +224,35 @@ async def vision_loop() -> None:
 
         img_b64 = base64.b64encode(buf.tobytes()).decode("ascii")
 
+        frame_buffer.append(annotated.copy())
+
         # Save proof of evidence only when TemporalValidator fires a NEW alert (throttled to 1 per sec max)
         now = time.time()
         new_alerts = [w for w in workers if w.get("is_new_alert", False)]
         if new_alerts and (now - last_evidence_time > 1.0):
             last_evidence_time = now
             for w in new_alerts:
-                filename = f"EVT-{int(now)}-{w['worker_id']}.jpg"
+                ts_int = int(now)
+                filename = f"EVT-{ts_int}-{w['worker_id']}.jpg"
                 filepath = os.path.join(EVIDENCE_DIR, filename)
                 cv2.imwrite(filepath, annotated)
                 evidence_url = f"/api/evidence/{filename}"
+
+                # Generate MP4 Video Clip Evidence
+                vid_filename = f"EVT-{ts_int}-{w['worker_id']}.mp4"
+                vid_filepath = os.path.join(EVIDENCE_DIR, vid_filename)
+                vid_url = f"/api/evidence/{vid_filename}"
+                try:
+                    h, w_dim, _ = annotated.shape
+                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                    out_vid = cv2.VideoWriter(vid_filepath, fourcc, 15.0, (w_dim, h))
+                    for f_buf in list(frame_buffer):
+                        out_vid.write(f_buf)
+                    out_vid.release()
+                except Exception as vid_err:
+                    log.warning("Video write failed: %s", vid_err)
+                    vid_url = ""
+
                 await db.record_violation(
                     worker_id=w["worker_id"],
                     zone_id=_active_zone,
@@ -240,6 +262,7 @@ async def vision_loop() -> None:
                     confidence=w.get("confidence", 0.0),
                     image_path=evidence_url,
                     image_base64=f"data:image/jpeg;base64,{img_b64}",
+                    video_path=vid_url,
                     camera_id=_active_camera_id,
                 )
 
@@ -423,6 +446,7 @@ async def get_violations_api():
     return JSONResponse(await db.get_violations())
 
 @app.post("/api/violations/{evt_id}/acknowledge")
+@app.patch("/api/violations/{evt_id}/acknowledge")
 async def acknowledge_violation_api(evt_id: str):
     ok = await db.acknowledge_violation(evt_id)
     return JSONResponse({"success": ok, "id": evt_id})
