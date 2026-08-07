@@ -10,11 +10,11 @@ import json
 import os
 import uuid
 import logging
-import time
 from typing import Any
 from datetime import datetime, timedelta
 
-from pymongo import MongoClient
+# pyrefly: ignore [missing-import]
+from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import ConnectionFailure
 
 from src.core import config
@@ -32,22 +32,21 @@ def get_db():
     global _client, _db
     if _db is None:
         try:
-            _client = MongoClient(config.MONGODB_URI, serverSelectionTimeoutMS=5000)
+            _client = AsyncIOMotorClient(config.MONGODB_URI, serverSelectionTimeoutMS=5000)
             _db = _client[config.MONGODB_DB_NAME]
-            # Verify connection
-            _client.admin.command('ping')
             log.info(f"Connected to MongoDB at {config.MONGODB_URI}")
         except ConnectionFailure as e:
             log.error(f"Failed to connect to MongoDB: {e}")
             raise
     return _db
 
-def ensure_db():
+async def ensure_db():
     """Initialize database collections and seed data if they don't exist yet."""
     db = get_db()
     
     # Check if we need to seed zones
-    if db.zones.count_documents({}) == 0:
+    count_zones = await db.zones.count_documents({})
+    if count_zones == 0:
         log.info("Seeding initial zones...")
         zones = [
             {"id": "ZONE-01", "name": "general_plant", "description": "General plant area – helmet and vest required", "required_ppe": ["helmet", "vest"]},
@@ -55,10 +54,11 @@ def ensure_db():
             {"id": "ZONE-03", "name": "work_at_height", "description": "Elevated work area – full harness system required", "required_ppe": ["helmet", "vest", "boots", "safety_belt", "hook"]},
             {"id": "ZONE-04", "name": "restricted_machinery", "description": "Restricted machinery area – authorised personnel only", "required_ppe": ["helmet", "vest"]}
         ]
-        db.zones.insert_many(zones)
+        await db.zones.insert_many(zones)
 
     # Check if we need to seed cameras
-    if db.cameras.count_documents({}) == 0:
+    count_cameras = await db.cameras.count_documents({})
+    if count_cameras == 0:
         log.info("Seeding initial cameras...")
         cameras = [
             {
@@ -73,11 +73,11 @@ def ensure_db():
                 "updated_at": datetime.utcnow()
             }
         ]
-        db.cameras.insert_many(cameras)
+        await db.cameras.insert_many(cameras)
         
     log.info("MongoDB database initialized successfully.")
 
-def record_violation(
+async def record_violation(
     worker_id: str,
     zone_id: str,
     violation_type: str,
@@ -85,36 +85,40 @@ def record_violation(
     missing_ppe: list[str],
     confidence: float,
     image_path: str = "",
+    image_base64: str = "",
+    camera_id: str = "CAM-01",
     model_version: str = "edgevision-ppe-v3.2-fp16"
 ) -> str:
-    """Record a violation event with image evidence into MongoDB."""
+    """Record a violation event with image evidence directly in MongoDB."""
     evt_id = f"EVT-{uuid.uuid4().hex[:6].upper()}"
     try:
         db = get_db()
         event = {
             "id": evt_id,
             "zone_id": zone_id,
+            "camera_id": camera_id,
             "worker_track_id": worker_id,
             "violation_type": violation_type,
             "detected_ppe": detected_ppe,
             "missing_ppe": missing_ppe,
             "confidence": confidence,
             "image_path": image_path,
+            "image_base64": image_base64,
             "model_version": model_version,
             "timestamp": datetime.utcnow(),
             "acknowledgement_status": "unacknowledged"
         }
-        db.violation_events.insert_one(event)
-        log.info("Recorded violation %s for %s in zone %s", evt_id, worker_id, zone_id)
+        await db.violation_events.insert_one(event)
+        log.info("Recorded violation %s for %s (camera: %s, zone: %s)", evt_id, worker_id, camera_id, zone_id)
     except Exception as e:
         log.error("Failed to record violation: %s", e)
     return evt_id
 
-def acknowledge_violation(evt_id: str) -> bool:
+async def acknowledge_violation(evt_id: str) -> bool:
     """Mark a violation event as acknowledged."""
     try:
         db = get_db()
-        result = db.violation_events.update_one(
+        result = await db.violation_events.update_one(
             {"id": evt_id},
             {"$set": {"acknowledgement_status": "reviewed"}}
         )
@@ -123,14 +127,44 @@ def acknowledge_violation(evt_id: str) -> bool:
         log.error("Failed to acknowledge violation %s: %s", evt_id, e)
         return False
 
-def get_violations(limit: int = 50) -> list[dict[str, Any]]:
+async def delete_violation(evt_id: str) -> bool:
+    """Delete a single violation event and its evidence record from MongoDB."""
+    try:
+        db = get_db()
+        result = await db.violation_events.delete_one({"id": evt_id})
+        return result.deleted_count > 0
+    except Exception as e:
+        log.error("Failed to delete violation %s: %s", evt_id, e)
+        return False
+
+async def delete_all_violations() -> bool:
+    """Clear all past violation evidence records from MongoDB."""
+    try:
+        db = get_db()
+        await db.violation_events.delete_many({})
+        return True
+    except Exception as e:
+        log.error("Failed to clear violations: %s", e)
+        return False
+
+async def delete_camera(cam_id: str) -> bool:
+    """Remove a camera from DB."""
+    try:
+        db = get_db()
+        result = await db.cameras.delete_one({"id": cam_id})
+        return result.deleted_count > 0
+    except Exception as e:
+        log.error("Failed to delete camera %s: %s", cam_id, e)
+        return False
+
+async def get_violations(limit: int = 100) -> list[dict[str, Any]]:
     """Retrieve recent violation events with proof of evidence."""
     try:
         db = get_db()
-        events = db.violation_events.find().sort("timestamp", -1).limit(limit)
+        cursor = db.violation_events.find().sort("timestamp", -1).limit(limit)
+        events = await cursor.to_list(length=limit)
         res = []
         for d in events:
-            # Format timestamp as string to be consistent with previous SQLite behavior
             ts = d.get("timestamp")
             if isinstance(ts, datetime):
                 ts_str = ts.strftime("%Y-%m-%d %H:%M:%S")
@@ -147,6 +181,7 @@ def get_violations(limit: int = 50) -> list[dict[str, Any]]:
                 "confidence": d.get("confidence", 0.0),
                 "timestamp": ts_str,
                 "imagePath": d.get("image_path", ""),
+                "imageBase64": d.get("image_base64", ""),
                 "status": d.get("acknowledgement_status"),
                 "modelVersion": d.get("model_version"),
                 "acknowledged": d.get("acknowledgement_status") == "reviewed",
@@ -157,11 +192,12 @@ def get_violations(limit: int = 50) -> list[dict[str, Any]]:
         log.error("Failed to fetch violations: %s", e)
         return []
 
-def get_zones() -> list[dict[str, Any]]:
+async def get_zones() -> list[dict[str, Any]]:
     """Retrieve configured safety zones with their required PPE."""
     try:
         db = get_db()
-        zones = db.zones.find()
+        cursor = db.zones.find()
+        zones = await cursor.to_list(length=None)
         result = []
         for d in zones:
             result.append({
@@ -175,20 +211,27 @@ def get_zones() -> list[dict[str, Any]]:
         log.error("Failed to fetch zones: %s", e)
         return []
 
-def save_zone(zone_data: dict) -> bool:
+async def save_zone(zone_data: dict) -> bool:
     """Insert or update safety zone configuration in DB."""
     try:
         db = get_db()
-        zone_id = zone_data.get("id", f"ZONE-{uuid.uuid4().hex[:4].upper()}")
+        zone_id = zone_data.get("id") or f"ZONE-{uuid.uuid4().hex[:4].upper()}"
         
-        update_doc = {
-            "name": zone_data.get("name", "Custom Zone"),
-            "description": zone_data.get("kind", zone_data.get("description", "General plant"))
-        }
+        update_doc = {}
+        if "name" in zone_data and zone_data["name"]:
+            update_doc["name"] = zone_data["name"]
+            
+        desc = zone_data.get("description") or zone_data.get("kind")
+        if desc:
+            update_doc["description"] = desc
+            
         if "required_ppe" in zone_data:
             update_doc["required_ppe"] = zone_data["required_ppe"]
             
-        db.zones.update_one(
+        if not update_doc:
+             update_doc["name"] = "Custom Zone"
+             
+        await db.zones.update_one(
             {"id": zone_id},
             {"$set": update_doc},
             upsert=True
@@ -198,7 +241,7 @@ def save_zone(zone_data: dict) -> bool:
         log.error("Failed to save zone: %s", e)
         return False
 
-def get_workers() -> list[dict[str, Any]]:
+async def get_workers() -> list[dict[str, Any]]:
     """Retrieve tracked worker compliance scores calculated from real DB events."""
     try:
         db = get_db()
@@ -216,7 +259,7 @@ def get_workers() -> list[dict[str, Any]]:
             {"$sort": {"total_incidents": -1}}
         ]
         
-        results = db.violation_events.aggregate(pipeline)
+        results = await db.violation_events.aggregate(pipeline).to_list(length=None)
         
         res = []
         for r in results:
@@ -244,28 +287,28 @@ def get_workers() -> list[dict[str, Any]]:
         log.error("Failed to fetch worker compliance: %s", e)
         return []
 
-def get_reports() -> dict[str, Any]:
+async def get_reports() -> dict[str, Any]:
     """Calculate aggregated safety compliance reporting from DB."""
     try:
         db = get_db()
         
-        total_violations = db.violation_events.count_documents({})
+        total_violations = await db.violation_events.count_documents({})
         
         # Violations by zone
         pipeline_zone = [{"$group": {"_id": "$zone_id", "count": {"$sum": 1}}}]
-        by_zone_results = db.violation_events.aggregate(pipeline_zone)
+        by_zone_results = await db.violation_events.aggregate(pipeline_zone).to_list(length=None)
         by_zone = [{"zone_id": r["_id"], "count": r["count"]} for r in by_zone_results]
         
         # Average confidence
         pipeline_conf = [{"$group": {"_id": None, "avg_conf": {"$avg": "$confidence"}}}]
-        conf_results = list(db.violation_events.aggregate(pipeline_conf))
+        conf_results = await db.violation_events.aggregate(pipeline_conf).to_list(length=None)
         avg_conf = conf_results[0]["avg_conf"] if conf_results else 0.0
         
         # Unique workers
-        unique_workers = len(db.violation_events.distinct("worker_track_id"))
+        unique_workers = len(await db.violation_events.distinct("worker_track_id"))
         
         # Reviewed
-        reviewed = db.violation_events.count_documents({"acknowledgement_status": "reviewed"})
+        reviewed = await db.violation_events.count_documents({"acknowledgement_status": "reviewed"})
         
         # Violations per hour
         pipeline_ts = [
@@ -277,7 +320,7 @@ def get_reports() -> dict[str, Any]:
                 }
             }
         ]
-        ts_results = list(db.violation_events.aggregate(pipeline_ts))
+        ts_results = await db.violation_events.aggregate(pipeline_ts).to_list(length=None)
         
         violations_per_hour = 0.0
         total_hours = 1.0
@@ -304,7 +347,7 @@ def get_reports() -> dict[str, Any]:
             },
             {"$sort": {"_id": 1}}
         ]
-        trend_results = db.violation_events.aggregate(pipeline_trend)
+        trend_results = await db.violation_events.aggregate(pipeline_trend).to_list(length=None)
         daily_trend = []
         for r in trend_results:
             daily_trend.append({
@@ -334,25 +377,25 @@ def get_reports() -> dict[str, Any]:
             "violations_per_hour": 0.0,
         }
 
-def get_stats() -> dict[str, Any]:
+async def get_stats() -> dict[str, Any]:
     """Get live overview stats for the dashboard."""
     try:
         db = get_db()
         
-        active_violations = db.violation_events.count_documents({"acknowledgement_status": {"$ne": "reviewed"}})
+        active_violations = await db.violation_events.count_documents({"acknowledgement_status": {"$ne": "reviewed"}})
         
         today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-        violations_today = db.violation_events.count_documents({"timestamp": {"$gte": today_start}})
+        violations_today = await db.violation_events.count_documents({"timestamp": {"$gte": today_start}})
         
         # Unique workers today
         pipeline_workers_today = [
             {"$match": {"timestamp": {"$gte": today_start}}},
             {"$group": {"_id": "$worker_track_id"}}
         ]
-        workers_today = len(list(db.violation_events.aggregate(pipeline_workers_today)))
+        workers_today = len(await db.violation_events.aggregate(pipeline_workers_today).to_list(length=None))
         
-        cameras_online = db.cameras.count_documents({"is_active": 1})
-        cameras_total = db.cameras.count_documents({})
+        cameras_online = await db.cameras.count_documents({"is_active": 1})
+        cameras_total = await db.cameras.count_documents({})
         
         compliance = max(60, 100 - (active_violations * 3)) if active_violations > 0 else 100
 
@@ -372,11 +415,12 @@ def get_stats() -> dict[str, Any]:
             "workers_tracked": 0, "daily_compliance": 100,
         }
 
-def get_cameras() -> list[dict[str, Any]]:
+async def get_cameras() -> list[dict[str, Any]]:
     """Retrieve registered cameras from DB."""
     try:
         db = get_db()
-        cameras = db.cameras.find().sort("id", 1)
+        cursor = db.cameras.find().sort("id", 1)
+        cameras = await cursor.to_list(length=None)
         rows = []
         for c in cameras:
             rows.append({
@@ -393,26 +437,27 @@ def get_cameras() -> list[dict[str, Any]]:
         log.error("Failed to fetch cameras: %s", e)
         return []
 
-def save_camera(cam_data: dict) -> bool:
+async def save_camera(cam_data: dict) -> bool:
     """Insert or update a camera in DB."""
     try:
         db = get_db()
-        cam_id = cam_data.get("id", f"CAM-{uuid.uuid4().hex[:4].upper()}")
+        cam_id = cam_data.get("id") or f"CAM-{uuid.uuid4().hex[:4].upper()}"
         
-        db.cameras.update_one(
-            {"id": cam_id},
-            {
-                "$set": {
-                    "name": cam_data.get("name", "New Camera"),
-                    "source": cam_data.get("source", cam_data.get("streamUrl", "0")),
-                    "location": cam_data.get("location", ""),
-                    "zone_id": cam_data.get("zoneId", "ZONE-01"),
-                    "target_fps": cam_data.get("targetFps", 20),
-                    "updated_at": datetime.utcnow()
-                }
-            },
-            upsert=True
-        )
+        update_doc = {}
+        if "name" in cam_data: update_doc["name"] = cam_data["name"]
+        if "source" in cam_data: update_doc["source"] = cam_data["source"]
+        if "streamUrl" in cam_data: update_doc["source"] = cam_data["streamUrl"]
+        if "location" in cam_data: update_doc["location"] = cam_data["location"]
+        if "zoneId" in cam_data: update_doc["zone_id"] = cam_data["zoneId"]
+        if "targetFps" in cam_data: update_doc["target_fps"] = cam_data["targetFps"]
+        
+        if update_doc:
+            update_doc["updated_at"] = datetime.utcnow()
+            await db.cameras.update_one(
+                {"id": cam_id},
+                {"$set": update_doc},
+                upsert=True
+            )
         return True
     except Exception as e:
         log.error("Failed to save camera: %s", e)

@@ -18,9 +18,8 @@ websockets>=12.0
 paho-mqtt>=1.6.1
 
 # ── Database ──────────────────────────────────────────────────────────────────
-pymongo>=4.6.0           # MongoDB driver
-# psycopg2-binary>=2.9.9   # PostgreSQL driver
-# sqlalchemy>=2.0.0        # ORM (optional)
+motor>=3.3.2             # Async MongoDB driver
+pydantic>=2.0.0          # Data validation
 # alembic>=1.13.0          # migrations (optional)
 
 # ── Testing ───────────────────────────────────────────────────────────────────

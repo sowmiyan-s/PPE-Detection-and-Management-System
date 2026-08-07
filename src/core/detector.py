@@ -124,24 +124,41 @@ class PPEDetector:
                 box        = boxes.xyxy[i].tolist()
                 conf       = float(boxes.conf[i].item())
 
-                if class_name == "person":
-                    if boxes.id is not None:
-                        try:
-                            track_id = int(boxes.id[i].item())
-                            persons.append({
-                                "id":         track_id,
-                                "box":        box,
-                                "class_name": class_name,
-                                "confidence": conf,
-                            })
-                        except Exception:
-                            pass
+                if class_name in ("person", "worker", "human"):
+                    track_id = (
+                        int(boxes.id[i].item())
+                        if (boxes.id is not None and i < len(boxes.id) and boxes.id[i] is not None)
+                        else (i + 101)
+                    )
+                    persons.append({
+                        "id":         track_id,
+                        "box":        box,
+                        "class_name": "person",
+                        "confidence": conf,
+                    })
                 elif class_name in ALL_PPE_CLASSES:
+                    # Enforce strict 0.60 minimum confidence for helmets
+                    if class_name == "helmet" and conf < 0.60:
+                        continue
+                        
                     ppe_items.append({
                         "box":        box,
                         "class_name": class_name,
                         "confidence": conf,
                     })
+
+        # Fallback: If PPE items exist but no person box was tracked, synthesize worker person container
+        if not persons and ppe_items:
+            for idx, ppe in enumerate(ppe_items):
+                px1, py1, px2, py2 = ppe["box"]
+                # Expand box vertically & horizontally to represent worker area
+                w_box = [max(0, px1 - 30), max(0, py1 - 20), px2 + 30, py2 + 150]
+                persons.append({
+                    "id": 101 + idx,
+                    "box": w_box,
+                    "class_name": "person",
+                    "confidence": ppe["confidence"],
+                })
 
         # ── Stage 3: person-to-PPE association ────────────────────────────────
         person_ppe_map = associate_ppe_to_persons(persons, ppe_items)
@@ -166,7 +183,7 @@ class PPEDetector:
             )
 
             with self._lock:
-                self._publisher.process_compliance_result(compliance)
+                is_new_alert = self._publisher.process_compliance_result(compliance)
 
             worker_states.append({
                 "worker_id":   f"Worker-{pid}",
@@ -175,6 +192,7 @@ class PPEDetector:
                 "missing_ppe": sorted(compliance.missing_ppe),
                 "compliant":   compliance.compliant,
                 "confidence":  round(mean_conf, 3),
+                "is_new_alert": is_new_alert,
             })
 
             # Draw annotations

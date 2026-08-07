@@ -33,6 +33,7 @@ from fastapi.staticfiles import StaticFiles
 from src.core import config
 from src.core.vision_pipeline import VisionPipeline
 from src.core import db
+from src.api.models import ZoneCreate, CameraCreate
 
 log = logging.getLogger(__name__)
 
@@ -49,10 +50,20 @@ _fps_stats: dict = {"fps": 0.0, "frame_count": 0, "start_time": time.time()}
 
 def open_camera_source(source: str) -> cv2.VideoCapture:
     """Helper to open webcam indices, RTSP URLs, or extract YouTube streams."""
-    if source.isdigit():
-        return cv2.VideoCapture(int(source))
+    if str(source).isdigit():
+        idx = int(source)
+        # On Windows, try DirectShow (CAP_DSHOW) first, then fall back to default backend
+        cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
+        if not cap.isOpened():
+            cap = cv2.VideoCapture(idx)
+        return cap
     
     if "youtube.com" in source or "youtu.be" in source:
+        try:
+            from cap_from_youtube import cap_from_youtube
+            return cap_from_youtube(source, "720p")
+        except Exception:
+            pass
         try:
             import yt_dlp
             ydl_opts = {"format": "best[ext=mp4]", "quiet": True}
@@ -60,8 +71,6 @@ def open_camera_source(source: str) -> cv2.VideoCapture:
                 info = ydl.extract_info(source, download=False)
                 url = info.get("url", source)
             return cv2.VideoCapture(url)
-        except ImportError:
-            log.warning("yt-dlp not installed, cannot resolve youtube URL natively")
         except Exception as e:
             log.warning("Failed to extract youtube stream: %s", e)
     
@@ -108,7 +117,7 @@ async def lifespan(app: FastAPI):
     global pipeline, camera
 
     # Auto-initialize database
-    db.ensure_db()
+    await db.ensure_db()
 
     try:
         pipeline = VisionPipeline(zone=_active_zone)
@@ -152,10 +161,12 @@ app.add_middleware(
 app.mount("/api/evidence", StaticFiles(directory=EVIDENCE_DIR), name="evidence")
 
 
+_active_source = "0"
+
 # ── Vision loop ────────────────────────────────────────────────────────────────
 
 async def vision_loop() -> None:
-    global _fps_stats
+    global _fps_stats, camera
     frame_interval = 1.0 / config.TARGET_FPS
     _fps_stats["start_time"] = time.time()
     last_evidence_time = 0.0
@@ -164,6 +175,11 @@ async def vision_loop() -> None:
         loop_start = time.time()
 
         if camera is None or not camera.isOpened() or pipeline is None:
+            if _active_source and (camera is None or not camera.isOpened()):
+                try:
+                    camera = open_camera_source(_active_source)
+                except Exception:
+                    pass
             await asyncio.sleep(0.5)
             continue
 
@@ -173,7 +189,13 @@ async def vision_loop() -> None:
             camera.set(cv2.CAP_PROP_POS_FRAMES, 0)
             ok, frame = camera.read()
             if not ok:
-                await asyncio.sleep(0.1)
+                if _active_source:
+                    try:
+                        log.info("Continuous Loop: Re-opening stream source %s", _active_source)
+                        camera = open_camera_source(_active_source)
+                    except Exception as err:
+                        log.warning("Re-open source failed: %s", err)
+                await asyncio.sleep(0.5)
                 continue
 
         try:
@@ -187,20 +209,29 @@ async def vision_loop() -> None:
 
         _fps_stats["frame_count"] += 1
         elapsed = time.time() - _fps_stats["start_time"]
-        if elapsed > 0:
+        if elapsed >= 1.0:
             _fps_stats["fps"] = round(_fps_stats["frame_count"] / elapsed, 1)
+            _fps_stats["start_time"] = time.time()
+            _fps_stats["frame_count"] = 0
 
-        # Save proof of evidence when non-compliant workers detected (throttle: max 1 snapshot per 3s)
+        ok_enc, buf = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 75])
+        if not ok_enc:
+            await asyncio.sleep(frame_interval)
+            continue
+
+        img_b64 = base64.b64encode(buf.tobytes()).decode("ascii")
+
+        # Save proof of evidence only when TemporalValidator fires a NEW alert (throttled to 1 per sec max)
         now = time.time()
-        non_compliant = [w for w in workers if not w.get("compliant", True)]
-        if non_compliant and (now - last_evidence_time > 3.0):
+        new_alerts = [w for w in workers if w.get("is_new_alert", False)]
+        if new_alerts and (now - last_evidence_time > 1.0):
             last_evidence_time = now
-            for w in non_compliant:
+            for w in new_alerts:
                 filename = f"EVT-{int(now)}-{w['worker_id']}.jpg"
                 filepath = os.path.join(EVIDENCE_DIR, filename)
                 cv2.imwrite(filepath, annotated)
                 evidence_url = f"/api/evidence/{filename}"
-                db.record_violation(
+                await db.record_violation(
                     worker_id=w["worker_id"],
                     zone_id=_active_zone,
                     violation_type=f"Missing {', '.join(w.get('missing_ppe', []))}",
@@ -208,12 +239,9 @@ async def vision_loop() -> None:
                     missing_ppe=w.get("missing_ppe", []),
                     confidence=w.get("confidence", 0.0),
                     image_path=evidence_url,
+                    image_base64=f"data:image/jpeg;base64,{img_b64}",
+                    camera_id=_active_camera_id,
                 )
-
-        ok_enc, buf = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 75])
-        if not ok_enc:
-            await asyncio.sleep(frame_interval)
-            continue
 
         payload = json.dumps({
             "frame":   base64.b64encode(buf.tobytes()).decode("ascii"),
@@ -376,42 +404,56 @@ async def health():
 @app.get("/api/zones")
 @app.get("/zones")
 async def list_zones():
-    db_zones = db.get_zones()
+    db_zones = await db.get_zones()
     from src.core.rule_engine import RuleEngine
     return JSONResponse({"zones": RuleEngine().list_zones(), "db_zones": db_zones, "active": _active_zone})
 
 @app.post("/api/zones")
 @app.post("/zones")
-async def set_zone(body: dict):
+async def set_zone(body: ZoneCreate):
     global _active_zone
-    if "name" in body or "kind" in body:
-        db.save_zone(body)
-    _active_zone = body.get("zone", body.get("name", config.DEFAULT_ZONE))
+    await db.save_zone(body.model_dump(exclude_none=True))
+    _active_zone = body.zone or body.name or config.DEFAULT_ZONE
     if pipeline:
         pipeline.set_zone(_active_zone)
     return JSONResponse({"active": _active_zone})
 
 @app.get("/api/violations")
 async def get_violations_api():
-    return JSONResponse(db.get_violations())
+    return JSONResponse(await db.get_violations())
 
 @app.post("/api/violations/{evt_id}/acknowledge")
 async def acknowledge_violation_api(evt_id: str):
-    ok = db.acknowledge_violation(evt_id)
+    ok = await db.acknowledge_violation(evt_id)
     return JSONResponse({"success": ok, "id": evt_id})
+
+@app.delete("/api/violations/{evt_id}")
+async def delete_violation_api(evt_id: str):
+    ok = await db.delete_violation(evt_id)
+    return JSONResponse({"success": ok, "id": evt_id})
+
+@app.delete("/api/violations")
+async def clear_all_violations_api():
+    ok = await db.delete_all_violations()
+    return JSONResponse({"success": ok})
+
+@app.delete("/api/cameras/{cam_id}")
+async def delete_camera_api(cam_id: str):
+    ok = await db.delete_camera(cam_id)
+    return JSONResponse({"success": ok, "id": cam_id})
 
 @app.get("/api/workers")
 async def get_workers_api():
-    return JSONResponse(db.get_workers())
+    return JSONResponse(await db.get_workers())
 
 @app.get("/api/reports")
 async def get_reports_api():
-    return JSONResponse(db.get_reports())
+    return JSONResponse(await db.get_reports())
 
 @app.get("/api/stats")
 async def get_stats_api():
     """Dashboard overview stats — live from DB."""
-    stats = db.get_stats()
+    stats = await db.get_stats()
     stats["current_fps"] = _fps_stats["fps"]
     stats["active_zone"] = _active_zone
     stats["ws_connections"] = len(manager.active)
@@ -420,7 +462,7 @@ async def get_stats_api():
 @app.get("/api/cameras")
 async def get_cameras_api():
     """Return cameras from DB, enriched with live pipeline status."""
-    db_cameras = db.get_cameras()
+    db_cameras = await db.get_cameras()
     result = []
     for cam in db_cameras:
         is_live = cam["id"] == _active_camera_id and camera is not None and camera.isOpened()
@@ -436,19 +478,6 @@ async def get_cameras_api():
             "streamUrl": cam["source"],
         })
 
-    # If no cameras in DB, still show the live pipeline camera
-    if not result:
-        result.append({
-            "id": "CAM-01",
-            "name": "EdgeVision Live AI Stream",
-            "zoneId": _active_zone,
-            "resolution": "1920×1080",
-            "targetFps": config.TARGET_FPS,
-            "actualFps": _fps_stats["fps"],
-            "latencyMs": round(1000.0 / max(1, _fps_stats["fps"]), 1),
-            "status": "online" if (camera and camera.isOpened()) else "offline",
-            "streamUrl": "ws://localhost:8000/ws"
-        })
     return JSONResponse(result)
 
 @app.get("/api/devices/cameras")
@@ -467,17 +496,17 @@ async def list_physical_cameras():
     return JSONResponse(available)
 
 @app.post("/api/cameras")
-async def add_camera_api(body: dict):
+async def add_camera_api(body: CameraCreate):
     """Register a new camera in the database."""
-    ok = db.save_camera(body)
+    ok = await db.save_camera(body.model_dump(exclude_none=True))
     return JSONResponse({"success": ok})
 
 @app.post("/api/cameras/{cam_id}/activate")
 async def activate_camera_api(cam_id: str):
     """Switch the live camera feed dynamically."""
-    global camera, _active_camera_id, _fps_stats
+    global camera, _active_camera_id, _active_source, _fps_stats
     
-    db_cameras = db.get_cameras()
+    db_cameras = await db.get_cameras()
     cam_data = next((c for c in db_cameras if c["id"] == cam_id), None)
     if not cam_data:
         return JSONResponse({"error": "Camera not found"}, status_code=404)
@@ -495,6 +524,7 @@ async def activate_camera_api(cam_id: str):
     old_cam = camera
     camera = new_cam
     _active_camera_id = cam_id
+    _active_source = str(source)
     _fps_stats = {"fps": 0.0, "frame_count": 0, "start_time": time.time()}
     if old_cam and old_cam.isOpened():
         old_cam.release()
@@ -526,6 +556,23 @@ async def get_model_metrics():
             {"cls": "anchor_point", "precision": 0.82, "recall": 0.74, "map50": 0.789}
         ]
     })
+@app.post("/api/test/seed")
+async def seed_test_data():
+    """Seed the database with sample violation events for testing."""
+    events = [
+        {"worker_id": "TEST-WORKER-01", "zone_id": "ZONE-01", "violation_type": "Missing helmet", "missing_ppe": ["helmet"]},
+        {"worker_id": "TEST-WORKER-02", "zone_id": "ZONE-02", "violation_type": "Missing vest, boots", "missing_ppe": ["vest", "boots"]}
+    ]
+    for e in events:
+        await db.record_violation(
+            worker_id=e["worker_id"],
+            zone_id=e["zone_id"],
+            violation_type=e["violation_type"],
+            detected_ppe=[],
+            missing_ppe=e["missing_ppe"],
+            confidence=0.99
+        )
+    return JSONResponse({"success": True, "message": "Test data seeded successfully."})
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):

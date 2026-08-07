@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
-import { Plus } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 
 import { AppShell, PageHeader, StatusDot } from "@/components/app-shell";
 import { type Camera } from "@/lib/mock-data";
@@ -99,6 +99,15 @@ function CamerasPage() {
       .then(() => fetch("/api/cameras").then((res) => (res.ok ? res.json() : [])))
       .then((data) => { if (Array.isArray(data)) setCameraList(data); })
       .catch((err) => console.error("Failed to activate camera", err));
+  };
+
+  const handleDeleteCamera = (camId: string) => {
+    if (confirm("Are you sure you want to delete this camera from the MongoDB cluster?")) {
+      fetch(`/api/cameras/${camId}`, { method: "DELETE" })
+        .then(() => fetch("/api/cameras").then((res) => (res.ok ? res.json() : [])))
+        .then((data) => { if (Array.isArray(data)) setCameraList(data); })
+        .catch((err) => console.error("Failed to delete camera", err));
+    }
   };
 
   return (
@@ -236,7 +245,7 @@ function CamerasPage() {
                   <td className="px-3 py-2.5">
                     <StatusDot status={c.status} />
                   </td>
-                  <td className="px-3 py-2.5 text-right">
+                  <td className="px-3 py-2.5 text-right flex items-center justify-end gap-1.5">
                     {c.status !== "online" && (
                       <button
                         onClick={() => handleActivate(c.id)}
@@ -245,6 +254,13 @@ function CamerasPage() {
                         Set Active
                       </button>
                     )}
+                    <button
+                      onClick={() => handleDeleteCamera(c.id)}
+                      title="Delete Camera"
+                      className="rounded border border-destructive/30 bg-destructive/10 p-1 text-destructive hover:bg-destructive hover:text-destructive-foreground transition-colors"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
                   </td>
                 </tr>
               ))
