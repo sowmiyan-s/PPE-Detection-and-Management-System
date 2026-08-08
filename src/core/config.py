@@ -56,18 +56,18 @@ PPE_CLASSES = [
 PPE_CONTAINMENT_THRESHOLD = float(os.getenv("PPE_CONTAINMENT_THRESHOLD", "0.40"))
 
 # ── Stage-5 temporal validation ───────────────────────────────────────────────
-TEMPORAL_WINDOW        = int(os.getenv("TEMPORAL_WINDOW", "8"))        # frames
-TEMPORAL_MIN_HITS      = int(os.getenv("TEMPORAL_MIN_HITS", "5"))      # out of WINDOW
-TEMPORAL_MIN_CONF      = float(os.getenv("TEMPORAL_MIN_CONF", "0.30")) # confidence
-TEMPORAL_MIN_ZONE_SECS = float(os.getenv("TEMPORAL_MIN_ZONE_SECS", "2.0"))  # seconds
+TEMPORAL_WINDOW        = int(os.getenv("TEMPORAL_WINDOW", "10"))        # frames
+TEMPORAL_MIN_HITS      = int(os.getenv("TEMPORAL_MIN_HITS", "8"))       # out of WINDOW (matches spec requirement: 8 of 10)
+TEMPORAL_MIN_CONF      = float(os.getenv("TEMPORAL_MIN_CONF", "0.20")) # confidence
+TEMPORAL_MIN_ZONE_SECS = float(os.getenv("TEMPORAL_MIN_ZONE_SECS", "2.0")) # seconds (matches spec: > 2 seconds)
 
 # ── Persistent worker tracker (majority voting across frames) ─────────────────
-WORKER_TRACKER_WINDOW    = int(os.getenv("WORKER_TRACKER_WINDOW", "10"))   # sliding window size
-WORKER_TRACKER_MIN_VOTES = int(os.getenv("WORKER_TRACKER_MIN_VOTES", "5")) # min detections to confirm PPE
+WORKER_TRACKER_WINDOW    = int(os.getenv("WORKER_TRACKER_WINDOW", "8"))    # sliding window size
+WORKER_TRACKER_MIN_VOTES = int(os.getenv("WORKER_TRACKER_MIN_VOTES", "3"))  # min detections to confirm PPE
 WORKER_TRACKER_STALE_FRAMES = int(os.getenv("WORKER_TRACKER_STALE_FRAMES", "60"))  # cleanup after N absent frames
 
 # ── Violation deduplication ───────────────────────────────────────────────────
-VIOLATION_COOLDOWN_SECS = float(os.getenv("VIOLATION_COOLDOWN_SECS", "30.0"))  # per-worker DB write cooldown
+VIOLATION_COOLDOWN_SECS = float(os.getenv("VIOLATION_COOLDOWN_SECS", "5.0"))   # per-worker DB write cooldown
 
 # ── PPE Aliases & Normalization ───────────────────────────────────────────────
 PPE_ALIASES: dict[str, str] = {
@@ -78,12 +78,19 @@ PPE_ALIASES: dict[str, str] = {
     "goggles":           "Glass",
     "ear-mufs":          "Ear-Protection",
     "face-guard":        "Mask",
+    "harness":           "safety_belt",
+    "safety_belt":       "safety_belt",
+    "lanyard":           "lanyard",
+    "hook":              "hook",
+    "anchor_point":      "anchor_point",
 }
 
 # ── Zone rule engine (Stage-4) ────────────────────────────────────────────────
 # Each zone maps to a set of required PPE class names.
 ZONE_RULES: dict[str, set[str]] = {
     "general_plant":       {"Hard_hat", "Vest"},
+    "construction":        {"Hard_hat", "Vest", "Boots"},
+    "work_at_height":      {"Hard_hat", "Vest", "Boots", "safety_belt", "hook"},
     "restricted_machinery":{"Hard_hat", "Vest", "Glass", "Ear-Protection", "Mask"},
     "hazardous_material":  {"Hard_hat", "Vest", "Boots", "Glove", "Glass", "Mask"},
 }

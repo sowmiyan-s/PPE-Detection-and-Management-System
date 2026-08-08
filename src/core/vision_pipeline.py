@@ -69,5 +69,9 @@ class VisionPipeline:
         self.zone = zone
         self._detector.default_zone = zone
 
+    def update_zone_rule(self, zone_name: str, required_ppe: set[str]) -> None:
+        """Proxy runtime zone rule update to PPEDetector."""
+        self._detector.update_zone_rule(zone_name, required_ppe)
+
     def release(self) -> None:
         self._detector.release()

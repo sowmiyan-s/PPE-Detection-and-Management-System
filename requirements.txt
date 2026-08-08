@@ -29,3 +29,6 @@ pytest-mock>=3.14.0
 # ── Utilities ─────────────────────────────────────────────────────────────────
 python-dotenv>=1.0.0     # load .env files
 yt-dlp>=2023.12.30       # youtube stream extraction
+pandas>=2.0.0            # data formatting and export
+openpyxl>=3.1.0          # excel format support
+

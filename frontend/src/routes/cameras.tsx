@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Edit2, X, Settings } from "lucide-react";
 
 import { AppShell, PageHeader, StatusDot } from "@/components/app-shell";
 import { type Camera } from "@/lib/mock-data";
 import { useSessionFetch, invalidateSessionCache } from "@/hooks/use-session-fetch";
+import { useAppData } from "@/lib/data-context";
 
 export const Route = createFileRoute("/cameras")({
   head: () => ({
@@ -20,23 +21,44 @@ export const Route = createFileRoute("/cameras")({
   component: CamerasPage,
 });
 
-function CamerasPage() {
-  const [showForm, setShowForm] = useState(false);
-  const { data: cameraList, loading, refetch: fetchCameras } = useSessionFetch<Camera[]>("/api/cameras", []);
-  const { data: zoneData } = useSessionFetch<any>("/api/zones", { db_zones: [] });
-  const { data: physicalCams } = useSessionFetch<{ id: string; name: string }[]>("/api/devices/cameras", []);
-  
-  const zoneList = zoneData?.db_zones || [];
+const DEFAULT_ZONES = [
+  { id: "general_plant", name: "General Plant Floor" },
+  { id: "restricted_machinery", name: "Restricted Machinery Zone" },
+  { id: "hazardous_material", name: "Hazardous Chemical Area" },
+  { id: "ZONE-01", name: "Zone 01 — Assembly Floor" },
+  { id: "ZONE-02", name: "Zone 02 — High Elevation Site" },
+];
 
-  // Form state
+function CamerasPage() {
+  const { cameras: ctxCameras, zones: ctxZones, refetchCameras } = useAppData();
+  const [showForm, setShowForm] = useState(false);
+  const [editingCamera, setEditingCamera] = useState<Camera | null>(null);
+
+  const { data: fetchList, loading: fetchLoading, refetch: manualRefetch } = useSessionFetch<Camera[]>("/api/cameras", []);
+  const { data: zoneData } = useSessionFetch<any>("/api/zones", { zones: [], db_zones: [] });
+  const { data: physicalCams } = useSessionFetch<{ id: string; name: string }[]>("/api/devices/cameras", []);
+
+  const cameraList = ctxCameras.length > 0 ? ctxCameras : fetchList;
+  const loading = fetchLoading && cameraList.length === 0;
+
+  const rawZones = ctxZones.length > 0 ? ctxZones : (zoneData?.zones?.length > 0 ? zoneData.zones : zoneData?.db_zones);
+  const zoneList = (rawZones && rawZones.length > 0) ? rawZones : DEFAULT_ZONES;
+
+  // New Form state
   const [cameraType, setCameraType] = useState("webcam");
   const [formName, setFormName] = useState("");
   const [formUrl, setFormUrl] = useState("0");
   const [formZone, setFormZone] = useState("");
   const [formFps, setFormFps] = useState("20");
 
+  // Edit Form state
+  const [editName, setEditName] = useState("");
+  const [editSource, setEditSource] = useState("");
+  const [editZone, setEditZone] = useState("");
+  const [editFps, setEditFps] = useState("20");
+
   useEffect(() => {
-    if (physicalCams.length > 0 && formUrl === "0") {
+    if (physicalCams.length > 0 && formUrl === "0" && physicalCams[0]?.id) {
       setFormUrl(physicalCams[0].id);
     }
   }, [physicalCams]);
@@ -69,7 +91,8 @@ function CamerasPage() {
     })
       .then(() => {
         invalidateSessionCache("/api/cameras");
-        fetchCameras(true);
+        refetchCameras();
+        manualRefetch(true);
       })
       .catch((err) => console.error("Failed to add camera", err));
 
@@ -79,11 +102,46 @@ function CamerasPage() {
     setFormFps("20");
   };
 
+  const openEditModal = (cam: Camera) => {
+    setEditingCamera(cam);
+    setEditName(cam.name);
+    setEditSource(cam.streamUrl || "0");
+    setEditZone(cam.zoneId || "ZONE-01");
+    setEditFps(String(cam.targetFps || 20));
+  };
+
+  const handleUpdateCamera = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCamera || !editName.trim()) return;
+
+    const updated = {
+      name: editName.trim(),
+      source: editSource.trim() || "0",
+      streamUrl: editSource.trim() || "0",
+      zoneId: editZone,
+      targetFps: parseInt(editFps) || 20,
+    };
+
+    fetch(`/api/cameras/${editingCamera.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updated),
+    })
+      .then(() => {
+        invalidateSessionCache("/api/cameras");
+        refetchCameras();
+        manualRefetch(true);
+        setEditingCamera(null);
+      })
+      .catch((err) => console.error("Failed to update camera", err));
+  };
+
   const handleActivate = (camId: string) => {
     fetch(`/api/cameras/${camId}/activate`, { method: "POST" })
       .then(() => {
         invalidateSessionCache("/api/cameras");
-        fetchCameras(true);
+        refetchCameras();
+        manualRefetch(true);
       })
       .catch((err) => console.error("Failed to activate camera", err));
   };
@@ -93,7 +151,8 @@ function CamerasPage() {
       fetch(`/api/cameras/${camId}`, { method: "DELETE" })
         .then(() => {
           invalidateSessionCache("/api/cameras");
-          fetchCameras(true);
+          refetchCameras();
+          manualRefetch(true);
         })
         .catch((err) => console.error("Failed to delete camera", err));
     }
@@ -102,8 +161,8 @@ function CamerasPage() {
   return (
     <AppShell>
       <PageHeader
-        title="Camera Management & Stream Registry"
-        subtitle="Each stream is bound to a zone; the rule engine applies that zone's PPE requirements to every tracked worker."
+        title="Camera Configuration & Stream Registry"
+        subtitle="Each stream is bound to a safety zone; configure camera names, sources, target FPS and zone assignments as needed."
         actions={
           <button
             onClick={() => setShowForm((s) => !s)}
@@ -113,6 +172,68 @@ function CamerasPage() {
           </button>
         }
       />
+
+      {/* Edit Camera Modal */}
+      {editingCamera && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <form
+            onSubmit={handleUpdateCamera}
+            className="relative max-w-lg w-full bg-panel rounded-lg border border-border overflow-hidden shadow-2xl p-5 space-y-4"
+          >
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <div className="flex items-center gap-2">
+                <Settings className="size-5 text-primary" />
+                <h3 className="font-semibold text-base display-title text-foreground">
+                  Edit Camera Config ({editingCamera.id})
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingCamera(null)}
+                className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <Field label="Camera Name" placeholder="Factory Floor Stream 1" value={editName} onChange={setEditName} />
+              <Field label="Stream Source / RTSP URL / Index" placeholder="0 or https://..." value={editSource} onChange={setEditSource} />
+              <label className="block">
+                <span className="display-title text-[10px] text-muted-foreground">Assigned Zone</span>
+                <select
+                  value={editZone}
+                  onChange={(e) => setEditZone(e.target.value)}
+                  className="telemetry mt-1 w-full rounded border border-input bg-background/60 px-3 py-2 text-sm outline-none focus:border-primary"
+                >
+                  {zoneList.map((z: any) => (
+                    <option key={z.id} value={z.id}>
+                      {z.name} ({z.id})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <Field label="Target FPS" placeholder="20" value={editFps} onChange={setEditFps} />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
+              <button
+                type="button"
+                onClick={() => setEditingCamera(null)}
+                className="px-4 py-2 rounded text-xs font-medium border border-border text-muted-foreground hover:text-foreground"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 rounded bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors"
+              >
+                Save Camera Config
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {showForm ? (
         <form
@@ -159,7 +280,7 @@ function CamerasPage() {
               className="telemetry mt-1 w-full rounded border border-input bg-background/60 px-3 py-2 text-sm outline-none focus:border-primary"
             >
               <option value="">Select zone</option>
-              {zoneList.map((z) => (
+              {zoneList.map((z: any) => (
                 <option key={z.id} value={z.id}>
                   {z.name}
                 </option>
@@ -244,6 +365,13 @@ function CamerasPage() {
                       </button>
                     )}
                     <button
+                      onClick={() => openEditModal(c)}
+                      title="Edit Camera Settings"
+                      className="rounded border border-primary/30 bg-primary/10 p-1 text-primary hover:bg-primary hover:text-primary-foreground transition-colors"
+                    >
+                      <Edit2 className="size-3.5" />
+                    </button>
+                    <button
                       onClick={() => handleDeleteCamera(c.id)}
                       title="Delete Camera"
                       className="rounded border border-destructive/30 bg-destructive/10 p-1 text-destructive hover:bg-destructive hover:text-destructive-foreground transition-colors"
@@ -274,3 +402,4 @@ function Field({ label, placeholder, value, onChange }: { label: string; placeho
     </label>
   );
 }
+

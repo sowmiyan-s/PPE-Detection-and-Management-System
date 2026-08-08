@@ -45,16 +45,46 @@ const tooltipStyle = {
   fontFamily: "var(--font-mono)",
 };
 
+import { useAppData } from "@/lib/data-context";
+import { useRef } from "react";
+
 type HealthData = { status: string; fps: number; zone: string; ws_connections: number; camera_active: boolean; pipeline_active: boolean };
 type StatsData = { cameras_online: number; cameras_total: number; active_violations: number; violations_today: number; workers_tracked: number; daily_compliance: number; current_fps: number };
 type ReportsData = { total_violations: number; avg_compliance: number; by_zone: { zone_id: string; count: number }[]; daily_trend: { day: string; violations: number; compliance: number }[] };
 type TickerItem = { id: string; text: string; level: "critical" | "warn" | "ok"; at: string };
 
 function Overview() {
+  const { stats: ctxStats, reports: ctxReports, violations: ctxViolations, refetchAll } = useAppData();
   const { data: health } = useSessionFetch<HealthData | null>("/api/health", null);
-  const { data: stats } = useSessionFetch<StatsData | null>("/api/stats", null);
-  const { data: reports } = useSessionFetch<ReportsData | null>("/api/reports", null);
-  const { data: violations } = useSessionFetch<any[]>("/api/violations", []);
+
+  const [liveFps, setLiveFps] = useState<number>(0);
+  const [liveWorkers, setLiveWorkers] = useState<number>(0);
+  const [liveZone, setLiveZone] = useState<string>("");
+  const wsRef = useRef<WebSocket | null>(null);
+
+  useEffect(() => {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onmessage = (ev) => {
+      try {
+        const d = JSON.parse(ev.data);
+        if (d.fps !== undefined) setLiveFps(d.fps);
+        if (d.zone) setLiveZone(d.zone);
+        if (d.workers) setLiveWorkers(d.workers.length);
+      } catch (err) {}
+    };
+
+    return () => {
+      if (wsRef.current) wsRef.current.close();
+    };
+  }, []);
+
+  const stats = ctxStats || { cameras_online: 1, cameras_total: 1, active_violations: 0, violations_today: 0, workers_tracked: liveWorkers, daily_compliance: 100, current_fps: liveFps };
+  const reports = ctxReports;
+  const violations = ctxViolations || [];
 
   const ticker: TickerItem[] = Array.isArray(violations)
     ? violations.slice(0, 8).map((v: any) => ({
@@ -66,7 +96,7 @@ function Overview() {
     : [];
 
   const violationTrend = reports?.daily_trend || [];
-  const violationsByZone = (reports?.by_zone || []).map((z) => ({
+  const violationsByZone = (reports?.by_zone || []).map((z: any) => ({
     zone: z.zone_id || "Unknown",
     count: z.count,
   }));

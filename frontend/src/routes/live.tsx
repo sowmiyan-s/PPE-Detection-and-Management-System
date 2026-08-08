@@ -48,14 +48,14 @@ function LivePage() {
 
   const [selectedCamId, setSelectedCamId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"grid" | "focus">("grid");
-  const [filterMode, setFilterMode] = useState<"all" | "violations" | "compliant" | "has_helmet" | "has_vest">("all");
+  const [filterMode, setFilterMode] = useState<"all" | "violations" | "compliant" | "has_helmet" | "has_vest" | "has_goggles" | "has_boots" | "has_gloves">("all");
   const wsRef = useRef<WebSocket | null>(null);
 
   const { data: cameraList, refetch: fetchCameras } = useSessionFetch<CameraItem[]>("/api/cameras", []);
 
   // Set default selected camera once we have cameras
   useEffect(() => {
-    if (cameraList.length > 0 && !selectedCamId) {
+    if (cameraList.length > 0 && !selectedCamId && cameraList[0]?.id) {
       setSelectedCamId(cameraList[0].id);
     }
   }, [cameraList, selectedCamId]);
@@ -333,6 +333,9 @@ function LivePage() {
                     <option value="compliant">Compliant Only</option>
                     <option value="has_helmet">Wearing Helmet</option>
                     <option value="has_vest">Wearing Vest</option>
+                    <option value="has_goggles">Wearing Goggles</option>
+                    <option value="has_boots">Wearing Boots</option>
+                    <option value="has_gloves">Wearing Gloves</option>
                   </select>
                 </div>
                 <span className="telemetry text-[10px] text-muted-foreground">ByteTrack IDs</span>
@@ -342,8 +345,11 @@ function LivePage() {
                 {workers.filter(w => {
                   if (filterMode === "violations") return !w.compliant;
                   if (filterMode === "compliant") return w.compliant;
-                  if (filterMode === "has_helmet") return w.detected_ppe?.includes("helmet");
-                  if (filterMode === "has_vest") return w.detected_ppe?.includes("vest");
+                  if (filterMode === "has_helmet") return w.detected_ppe?.includes("helmet") || w.detected_ppe?.includes("Hard_hat");
+                  if (filterMode === "has_vest") return w.detected_ppe?.includes("vest") || w.detected_ppe?.includes("Vest");
+                  if (filterMode === "has_goggles") return w.detected_ppe?.includes("goggles") || w.detected_ppe?.includes("Glass");
+                  if (filterMode === "has_boots") return w.detected_ppe?.includes("boots") || w.detected_ppe?.includes("Boots");
+                  if (filterMode === "has_gloves") return w.detected_ppe?.includes("gloves") || w.detected_ppe?.includes("Glove");
                   return true;
                 }).length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
@@ -354,10 +360,13 @@ function LivePage() {
                   workers.filter(w => {
                     if (filterMode === "violations") return !w.compliant;
                     if (filterMode === "compliant") return w.compliant;
-                    if (filterMode === "has_helmet") return w.detected_ppe?.includes("helmet");
-                    if (filterMode === "has_vest") return w.detected_ppe?.includes("vest");
+                    if (filterMode === "has_helmet") return w.detected_ppe?.includes("helmet") || w.detected_ppe?.includes("Hard_hat");
+                    if (filterMode === "has_vest") return w.detected_ppe?.includes("vest") || w.detected_ppe?.includes("Vest");
+                    if (filterMode === "has_goggles") return w.detected_ppe?.includes("goggles") || w.detected_ppe?.includes("Glass");
+                    if (filterMode === "has_boots") return w.detected_ppe?.includes("boots") || w.detected_ppe?.includes("Boots");
+                    if (filterMode === "has_gloves") return w.detected_ppe?.includes("gloves") || w.detected_ppe?.includes("Glove");
                     return true;
-                  }).map((w) => (
+                  }).map((w: any) => (
                     <div
                       key={w.worker_id}
                       className={`rounded border-l-4 p-3 bg-background/50 transition-all ${
@@ -371,19 +380,25 @@ function LivePage() {
                         </span>
                       </div>
 
-                      <div className="flex flex-wrap gap-1 mt-2">
-                        {w.detected_ppe?.map((p) => (
+                      {w.required_ppe && w.required_ppe.length > 0 && (
+                        <div className="telemetry text-[10px] text-muted-foreground mb-1">
+                          REQ: {w.required_ppe.join(", ")}
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        {w.detected_ppe?.map((p: string) => (
                           <span
                             key={p}
-                            className="rounded bg-success/20 px-2 py-0.5 text-[10px] text-success border border-success/30"
+                            className="rounded bg-success/20 px-2 py-0.5 text-[10px] text-success border border-success/30 font-medium"
                           >
                             {p}
                           </span>
                         ))}
-                        {w.missing_ppe?.map((p) => (
+                        {w.missing_ppe?.map((p: string) => (
                           <span
                             key={`miss-${p}`}
-                            className="flex items-center gap-1 rounded bg-destructive/20 px-2 py-0.5 text-[10px] text-destructive border border-destructive/30"
+                            className="flex items-center gap-1 rounded bg-destructive/20 px-2 py-0.5 text-[10px] text-destructive border border-destructive/30 font-semibold"
                           >
                             <AlertTriangle className="size-3" /> missing {p}
                           </span>

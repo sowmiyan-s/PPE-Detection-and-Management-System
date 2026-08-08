@@ -32,6 +32,10 @@ const CONFIGURABLE_PPE: PpeKey[] = [
   "ear-mufs",
   "face-guard",
   "safety-suit",
+  "safety_belt",
+  "lanyard",
+  "hook",
+  "anchor_point",
 ];
 
 const defaultRequired: Record<PpeKey, boolean> = {
@@ -49,6 +53,10 @@ const defaultRequired: Record<PpeKey, boolean> = {
   "ear-mufs": false,
   "face-guard": false,
   "safety-suit": false,
+  safety_belt: false,
+  lanyard: false,
+  hook: false,
+  anchor_point: false,
   tool: false,
 };
 
@@ -165,6 +173,29 @@ function ZonesPage() {
       .catch((err) => console.error("Failed to sync new zone to backend", err));
   };
 
+  const [savedZoneId, setSavedZoneId] = useState<string | null>(null);
+
+  const handleSaveZone = (targetZone: Zone) => {
+    const requiredPpe = CONFIGURABLE_PPE.filter((k) => targetZone.required[k]);
+    fetch("/api/zones", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: targetZone.id,
+        name: targetZone.name,
+        description: targetZone.kind,
+        required_ppe: requiredPpe,
+      }),
+    })
+      .then(() => {
+        invalidateSessionCache("/api/zones");
+        fetchZones(true);
+        setSavedZoneId(targetZone.id);
+        setTimeout(() => setSavedZoneId(null), 3500);
+      })
+      .catch((err) => console.error("Failed to save zone settings", err));
+  };
+
   return (
     <AppShell>
       <PageHeader
@@ -208,6 +239,12 @@ function ZonesPage() {
                     {CONFIGURABLE_PPE.filter((k) => z.required[k]).length} rules active
                   </span>
                 </div>
+
+                {savedZoneId === z.id && (
+                  <div className="mt-3 rounded border border-success/40 bg-success/15 px-3 py-2 text-xs font-semibold text-success flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
+                    <span>✓ Zone rule settings updated & active for live stream!</span>
+                  </div>
+                )}
 
                 <div className="mt-4 grid gap-2 sm:grid-cols-2">
                   {CONFIGURABLE_PPE.map((k) => (
@@ -270,6 +307,16 @@ function ZonesPage() {
                     suffix="%"
                     onChange={(v) => update(z.id, { confidence: v / 100 })}
                   />
+                </div>
+
+                <div className="mt-4 flex items-center justify-end border-t border-border pt-3">
+                  <button
+                    type="button"
+                    onClick={() => handleSaveZone(z)}
+                    className="flex items-center gap-1.5 rounded bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm"
+                  >
+                    <span>Save Zone Settings</span>
+                  </button>
                 </div>
               </div>
             </section>

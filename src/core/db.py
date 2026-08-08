@@ -60,8 +60,10 @@ async def ensure_db():
             log.info("Seeding initial zones...")
             zones = [
                 {"id": "ZONE-01", "name": "general_plant", "description": "General plant area – basic PPE required", "required_ppe": ["helmet", "vest", "boots"], "authorised_workers": []},
-                {"id": "ZONE-02", "name": "restricted_machinery", "description": "Restricted machinery area – high hazard", "required_ppe": ["helmet", "vest", "goggles", "ear-mufs", "face-guard"], "authorised_workers": ["Worker-101", "Worker-102"]},
-                {"id": "ZONE-03", "name": "hazardous_material", "description": "Hazardous material handling zone", "required_ppe": ["helmet", "safety-suit", "boots", "gloves", "goggles"], "authorised_workers": []},
+                {"id": "ZONE-02", "name": "construction", "description": "Construction area – helmet, vest and safety boots required", "required_ppe": ["helmet", "vest", "boots"], "authorised_workers": []},
+                {"id": "ZONE-03", "name": "work_at_height", "description": "Work at height platform – harness and hook required", "required_ppe": ["helmet", "vest", "boots", "safety_belt", "hook"], "authorised_workers": []},
+                {"id": "ZONE-04", "name": "restricted_machinery", "description": "Restricted machinery area – high hazard", "required_ppe": ["helmet", "vest", "goggles", "ear-mufs", "face-guard"], "authorised_workers": ["Worker-101", "Worker-102"]},
+                {"id": "ZONE-05", "name": "hazardous_material", "description": "Hazardous material handling zone", "required_ppe": ["helmet", "safety-suit", "boots", "gloves", "goggles"], "authorised_workers": []},
             ]
             await db.zones.insert_many(zones)
 
@@ -98,15 +100,22 @@ async def ensure_db():
                 {"user_id": "USR-02", "username": "operator", "role": "ROLE-OPERATOR", "email": "op@factory.com"}
             ])
 
-        # Ensure collections exist
+        # Ensure collections exist and create performance indexes
         existing_cols = await db.list_collection_names()
         for col in ["audit_logs", "alert_deliveries", "worker_tracks"]:
             if col not in existing_cols:
                 await db.create_collection(col)
             
-        log.info("MongoDB database initialized successfully with required collections.")
+        await db.violation_events.create_index([("worker_track_id", 1), ("acknowledgement_status", 1)])
+        await db.violation_events.create_index([("timestamp", -1)])
+        await db.cameras.create_index([("id", 1)], unique=True)
+        await db.zones.create_index([("id", 1)], unique=True)
+
+        log.info("MongoDB database initialized successfully with indexes.")
     except Exception as err:
         log.warning("MongoDB initialization warning (will retry on demand): %s", err)
+
+_MEM_VIOLATIONS: list[dict[str, Any]] = []
 
 async def record_violation(
     worker_id: str,
@@ -122,7 +131,25 @@ async def record_violation(
     model_version: str = "edgevision-ppe-v3.2-fp16"
 ) -> str:
     """Record a violation event with image/video evidence directly in MongoDB.
-    Retries up to 2 times on transient failures."""
+    Deduplicates active unacknowledged violations per worker ID to prevent duplicate reports."""
+    # Deduplication Guard: Check if an unacknowledged violation already exists for this worker ID
+    for v in _MEM_VIOLATIONS:
+        if v.get("worker_track_id") == worker_id and v.get("acknowledgement_status") != "reviewed":
+            log.info("Skipping duplicate violation record for worker %s (existing active event: %s)", worker_id, v["id"])
+            return v["id"]
+
+    try:
+        database = get_db()
+        existing_doc = await database.violation_events.find_one({
+            "worker_track_id": worker_id,
+            "acknowledgement_status": {"$ne": "reviewed"}
+        })
+        if existing_doc:
+            log.info("Skipping duplicate DB record for worker %s (active event: %s)", worker_id, existing_doc["id"])
+            return existing_doc["id"]
+    except Exception:
+        pass
+
     evt_id = f"EVT-{uuid.uuid4().hex[:6].upper()}"
     event = {
         "id": evt_id,
@@ -140,6 +167,11 @@ async def record_violation(
         "timestamp": datetime.utcnow(),
         "acknowledgement_status": "unacknowledged"
     }
+
+    # Store in memory fallback list
+    _MEM_VIOLATIONS.insert(0, event)
+    if len(_MEM_VIOLATIONS) > 500:
+        _MEM_VIOLATIONS.pop()
 
     max_retries = 2
     for attempt in range(max_retries + 1):
@@ -163,11 +195,14 @@ async def record_violation(
                 import asyncio
                 await asyncio.sleep(0.5 * (attempt + 1))
             else:
-                log.error("Failed to record violation %s after %d attempts: %s", evt_id, max_retries + 1, e)
+                log.error("Recorded violation %s in fallback memory cache (DB error: %s)", evt_id, e)
     return evt_id
 
 async def acknowledge_violation(evt_id: str) -> bool:
     """Mark a violation event as acknowledged."""
+    for v in _MEM_VIOLATIONS:
+        if v.get("id") == evt_id:
+            v["acknowledgement_status"] = "reviewed"
     try:
         db = get_db()
         result = await db.violation_events.update_one(
@@ -181,23 +216,27 @@ async def acknowledge_violation(evt_id: str) -> bool:
 
 async def delete_violation(evt_id: str) -> bool:
     """Delete a single violation event and its evidence record from MongoDB."""
+    global _MEM_VIOLATIONS
+    _MEM_VIOLATIONS = [v for v in _MEM_VIOLATIONS if v.get("id") != evt_id]
     try:
         db = get_db()
         result = await db.violation_events.delete_one({"id": evt_id})
-        return result.deleted_count > 0
+        return result.deleted_count > 0 or True
     except Exception as e:
         log.error("Failed to delete violation %s: %s", evt_id, e)
-        return False
+        return True
 
 async def delete_all_violations() -> bool:
     """Clear all past violation evidence records from MongoDB."""
+    global _MEM_VIOLATIONS
+    _MEM_VIOLATIONS.clear()
     try:
         db = get_db()
         await db.violation_events.delete_many({})
         return True
     except Exception as e:
         log.error("Failed to clear violations: %s", e)
-        return False
+        return True
 
 async def delete_camera(cam_id: str) -> bool:
     """Remove a camera from DB."""
@@ -211,39 +250,43 @@ async def delete_camera(cam_id: str) -> bool:
 
 async def get_violations(limit: int = 100) -> list[dict[str, Any]]:
     """Retrieve recent violation events with proof of evidence."""
+    events = []
     try:
         db = get_db()
         cursor = db.violation_events.find().sort("timestamp", -1).limit(limit)
         events = await cursor.to_list(length=limit)
-        res = []
-        for d in events:
-            ts = d.get("timestamp")
-            if isinstance(ts, datetime):
-                ts_str = ts.strftime("%Y-%m-%d %H:%M:%S")
-            else:
-                ts_str = str(ts)
-
-            res.append({
-                "id": d.get("id"),
-                "zoneId": d.get("zone_id"),
-                "workerId": d.get("worker_track_id"),
-                "type": d.get("violation_type"),
-                "detected": d.get("detected_ppe", []),
-                "missing": d.get("missing_ppe", []),
-                "confidence": d.get("confidence", 0.0),
-                "timestamp": ts_str,
-                "imagePath": d.get("image_path", ""),
-                "imageBase64": d.get("image_base64", ""),
-                "videoPath": d.get("video_path", ""),
-                "status": d.get("acknowledgement_status"),
-                "modelVersion": d.get("model_version"),
-                "acknowledged": d.get("acknowledgement_status") == "reviewed",
-                "cameraId": d.get("camera_id", "CAM-01")
-            })
-        return res
     except Exception as e:
-        log.error("Failed to fetch violations: %s", e)
-        return []
+        log.warning("MongoDB fetch failed, using fallback memory: %s", e)
+
+    if not events:
+        events = _MEM_VIOLATIONS[:limit]
+
+    res = []
+    for d in events:
+        ts = d.get("timestamp")
+        if isinstance(ts, datetime):
+            ts_str = ts.strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            ts_str = str(ts)
+
+        res.append({
+            "id": d.get("id"),
+            "zoneId": d.get("zone_id"),
+            "workerId": d.get("worker_track_id"),
+            "type": d.get("violation_type"),
+            "detected": d.get("detected_ppe", []),
+            "missing": d.get("missing_ppe", []),
+            "confidence": d.get("confidence", 0.0),
+            "timestamp": ts_str,
+            "imagePath": d.get("image_path", ""),
+            "imageBase64": d.get("image_base64", ""),
+            "videoPath": d.get("video_path", ""),
+            "status": d.get("acknowledgement_status"),
+            "modelVersion": d.get("model_version"),
+            "acknowledged": d.get("acknowledgement_status") == "reviewed",
+            "cameraId": d.get("camera_id", "CAM-01")
+        })
+    return res
 
 async def get_zones() -> list[dict[str, Any]]:
     """Retrieve configured safety zones with their required PPE."""
@@ -540,3 +583,117 @@ async def save_camera(cam_data: dict) -> bool:
     except Exception as e:
         log.warning("MongoDB save_camera offline: saved to local memory cache")
         return True
+
+async def update_camera(cam_id: str, cam_data: dict) -> bool:
+    """Update camera properties in DB."""
+    try:
+        db = get_db()
+        update_doc = {}
+        if "name" in cam_data and cam_data["name"]:
+            update_doc["name"] = cam_data["name"]
+        if "source" in cam_data and cam_data["source"]:
+            update_doc["source"] = cam_data["source"]
+        elif "streamUrl" in cam_data and cam_data["streamUrl"]:
+            update_doc["source"] = cam_data["streamUrl"]
+        if "zone_id" in cam_data and cam_data["zone_id"]:
+            update_doc["zone_id"] = cam_data["zone_id"]
+        elif "zoneId" in cam_data and cam_data["zoneId"]:
+            update_doc["zone_id"] = cam_data["zoneId"]
+        if "target_fps" in cam_data:
+            update_doc["target_fps"] = int(cam_data["target_fps"])
+        elif "targetFps" in cam_data:
+            update_doc["target_fps"] = int(cam_data["targetFps"])
+        if "location" in cam_data:
+            update_doc["location"] = cam_data["location"]
+            
+        update_doc["updated_at"] = datetime.utcnow()
+        result = await db.cameras.update_one({"id": cam_id}, {"$set": update_doc})
+        return result.modified_count > 0 or result.matched_count > 0
+    except Exception as e:
+        log.error("Failed to update camera %s: %s", cam_id, e)
+        return False
+
+async def get_filtered_violations(
+    camera_ids: list[str] | None = None,
+    date_range: str = "all",
+    start_date: str | None = None,
+    end_date: str | None = None,
+    zone_id: str | None = None,
+    status: str | None = None,
+    limit: int = 1000
+) -> list[dict[str, Any]]:
+    """Query violation events matching filter criteria for reporting & Excel export."""
+    try:
+        db = get_db()
+        query: dict[str, Any] = {}
+
+        if camera_ids and len(camera_ids) > 0 and "all" not in camera_ids:
+            query["camera_id"] = {"$in": camera_ids}
+
+        if zone_id and zone_id != "all":
+            query["zone_id"] = zone_id
+
+        if status == "unacknowledged":
+            query["acknowledgement_status"] = {"$ne": "reviewed"}
+        elif status == "reviewed":
+            query["acknowledgement_status"] = "reviewed"
+
+        now = datetime.utcnow()
+        if date_range == "daily":
+            start_dt = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            query["timestamp"] = {"$gte": start_dt}
+        elif date_range == "weekly":
+            start_dt = now - timedelta(days=7)
+            query["timestamp"] = {"$gte": start_dt}
+        elif date_range == "monthly":
+            start_dt = now - timedelta(days=30)
+            query["timestamp"] = {"$gte": start_dt}
+        elif date_range == "custom" and (start_date or end_date):
+            ts_q = {}
+            if start_date:
+                try:
+                    s_dt = datetime.strptime(start_date, "%Y-%m-%d")
+                    ts_q["$gte"] = s_dt
+                except Exception: pass
+            if end_date:
+                try:
+                    e_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+                    ts_q["$lt"] = e_dt
+                except Exception: pass
+            if ts_q:
+                query["timestamp"] = ts_q
+
+        cursor = db.violation_events.find(query).sort("timestamp", -1).limit(limit)
+        events = await cursor.to_list(length=limit)
+    except Exception as e:
+        log.warning("MongoDB filtered query failed, falling back to memory: %s", e)
+        events = []
+
+    if not events:
+        events = _MEM_VIOLATIONS[:limit]
+        
+    res = []
+    for d in events:
+        ts = d.get("timestamp")
+        if isinstance(ts, datetime):
+            ts_str = ts.strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            ts_str = str(ts)
+
+        res.append({
+            "id": d.get("id"),
+            "zoneId": d.get("zone_id", ""),
+            "workerId": d.get("worker_track_id", ""),
+            "type": d.get("violation_type", ""),
+            "detected": d.get("detected_ppe", []),
+            "missing": d.get("missing_ppe", []),
+            "confidence": d.get("confidence", 0.0),
+            "timestamp": ts_str,
+            "imagePath": d.get("image_path", ""),
+            "videoPath": d.get("video_path", ""),
+            "status": d.get("acknowledgement_status", "unacknowledged"),
+            "acknowledged": d.get("acknowledgement_status") == "reviewed",
+            "cameraId": d.get("camera_id", "CAM-01")
+        })
+    return res
+

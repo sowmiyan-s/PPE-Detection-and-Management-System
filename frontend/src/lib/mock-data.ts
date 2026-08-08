@@ -16,6 +16,10 @@ export type PpeKey =
   | "ear-mufs"
   | "face-guard"
   | "safety-suit"
+  | "safety_belt"
+  | "lanyard"
+  | "hook"
+  | "anchor_point"
   | "tool";
 
 export const PPE_LABELS: Record<PpeKey, string> = {
@@ -33,6 +37,10 @@ export const PPE_LABELS: Record<PpeKey, string> = {
   "ear-mufs": "Ear Muffs",
   "face-guard": "Face Guard",
   "safety-suit": "Safety Suit",
+  safety_belt: "Safety Harness / Belt",
+  lanyard: "Safety Lanyard",
+  hook: "Safety Hook",
+  anchor_point: "Anchor Point",
   tool: "Tool",
 };
 

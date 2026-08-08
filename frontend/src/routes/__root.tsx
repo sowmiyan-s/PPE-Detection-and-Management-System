@@ -128,13 +128,18 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+import { DataProvider } from "../lib/data-context";
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-      <Outlet />
+      <DataProvider>
+        {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+        <Outlet />
+      </DataProvider>
     </QueryClientProvider>
   );
 }
+

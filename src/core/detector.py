@@ -31,6 +31,7 @@ from src.core.association import associate_ppe_to_persons
 from src.core.publisher import PPEMqttPublisher
 from src.core.rule_engine import RuleEngine
 from src.core.worker_tracker import WorkerTracker, POSITIVE_PPE
+from src.core.temporal_validator import TemporalValidator
 
 log = logging.getLogger(__name__)
 
@@ -91,7 +92,43 @@ class PPEDetector:
         self._publisher = PPEMqttPublisher(broker=broker, port=port, topic=topic)
         self._rule_engine = RuleEngine()
         self._worker_tracker = WorkerTracker()
+        self._temporal_validator = TemporalValidator()
         self._lock = threading.Lock()
+        
+        self._track_memory: dict[int, dict] = {}  # track_id -> {"box": list, "last_frame": int}
+        self._frame_count: int = 0
+        self._next_synthetic_id: int = 101
+
+    def update_zone_rule(self, zone_name: str, required_ppe: set[str]) -> None:
+        """Update required PPE rules for a zone at runtime."""
+        with self._lock:
+            self._rule_engine.add_zone(zone_name, required_ppe)
+            config.ZONE_RULES[zone_name] = required_ppe
+            log.info("PPEDetector updated zone '%s' rules to: %s", zone_name, required_ppe)
+
+    @staticmethod
+    def _compute_walk_robust_similarity(boxA: list[float], boxB: list[float]) -> float:
+        if not boxA or not boxB or len(boxA) < 4 or len(boxB) < 4:
+            return 0.0
+        xA = max(boxA[0], boxB[0])
+        yA = max(boxA[1], boxB[1])
+        xB = min(boxA[2], boxB[2])
+        yB = min(boxA[3], boxB[3])
+        interArea = max(0.0, xB - xA) * max(0.0, yB - yA)
+        boxAArea = max(1e-5, (boxA[2] - boxA[0]) * (boxA[3] - boxA[1]))
+        boxBArea = max(1e-5, (boxB[2] - boxB[0]) * (boxB[3] - boxB[1]))
+        
+        iou = interArea / float(boxAArea + boxBArea - interArea)
+        minArea = min(boxAArea, boxBArea)
+        containment = interArea / float(minArea) if minArea > 0 else 0.0
+        
+        cxA, cyA = (boxA[0] + boxA[2]) / 2.0, (boxA[1] + boxA[3]) / 2.0
+        cxB, cyB = (boxB[0] + boxB[2]) / 2.0, (boxB[1] + boxB[3]) / 2.0
+        max_dim = max(boxA[2] - boxA[0], boxA[3] - boxA[1], boxB[2] - boxB[0], boxB[3] - boxB[1], 100.0)
+        dist = ((cxA - cxB) ** 2 + (cyA - cyB) ** 2) ** 0.5
+        center_sim = max(0.0, 1.0 - (dist / (max_dim * 1.5)))
+
+        return max(iou, containment * 0.75, center_sim * 0.65)
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
@@ -108,18 +145,28 @@ class PPEDetector:
         annotated_frame : BGR frame with bounding boxes and status overlays
         worker_states   : list of dicts, one per tracked worker
         """
+        self._frame_count += 1
         active_zone = zone or self.default_zone
 
         # ── Stage 1+2: detect + track (raw frame — no enhancer for speed) ────
-        results = self.model.track(
-            frame,
-            persist=True,
-            tracker=config.TRACKER_CONFIG,
-            conf=config.DETECTION_CONF,
-            imgsz=config.INFERENCE_IMG_SIZE,
-            quantize="fp16" if config.INFERENCE_HALF_PRECISION else "fp32",
-            verbose=False,
-        )
+        try:
+            results = self.model.track(
+                frame,
+                persist=True,
+                tracker=config.TRACKER_CONFIG,
+                conf=config.DETECTION_CONF,
+                imgsz=config.INFERENCE_IMG_SIZE,
+                quantize="fp16" if config.INFERENCE_HALF_PRECISION else "fp32",
+                verbose=False,
+            )
+        except Exception as track_err:
+            log.warning("Tracking fallback to predict due to tracker error: %s", track_err)
+            results = self.model.predict(
+                frame,
+                conf=config.DETECTION_CONF,
+                imgsz=config.INFERENCE_IMG_SIZE,
+                verbose=False,
+            )
 
         if not results:
             return frame, []
@@ -127,8 +174,8 @@ class PPEDetector:
         result = results[0]
         boxes  = result.boxes
 
-        persons:   list[dict] = []
-        ppe_items: list[dict] = []
+        raw_persons: list[dict] = []
+        ppe_items:   list[dict] = []
 
         if boxes is not None:
             for i in range(len(boxes)):
@@ -138,14 +185,18 @@ class PPEDetector:
                 conf       = float(boxes.conf[i].item())
 
                 if class_name.lower() in ("person", "worker", "human"):
-                    track_id = (
-                        int(boxes.id[i].item())
-                        if (boxes.id is not None and i < len(boxes.id) and boxes.id[i] is not None)
-                        else (i + 101)
-                    )
-                    persons.append({
-                        "id":         track_id,
-                        "box":        box,
+                    raw_id = None
+                    if boxes.id is not None and i < len(boxes.id) and boxes.id[i] is not None:
+                        try:
+                            val = float(boxes.id[i].item())
+                            if not np.isnan(val):
+                                raw_id = int(val)
+                        except (ValueError, TypeError):
+                            raw_id = None
+
+                    raw_persons.append({
+                        "raw_id":    raw_id,
+                        "box":       box,
                         "class_name": "person",
                         "confidence": conf,
                     })
@@ -156,24 +207,101 @@ class PPEDetector:
                         "confidence": conf,
                     })
 
-        # Fallback: If PPE items exist but no person box was tracked, synthesize worker person container
-        if not persons and ppe_items:
-            for idx, ppe in enumerate(ppe_items):
-                px1, py1, px2, py2 = ppe["box"]
-                # Expand box vertically & horizontally to represent worker area
-                w_box = [max(0, px1 - 30), max(0, py1 - 20), px2 + 30, py2 + 150]
-                persons.append({
-                    "id": 101 + idx,
-                    "box": w_box,
-                    "class_name": "person",
-                    "confidence": ppe["confidence"],
-                })
+        # 1. Non-Maximum Suppression for person bounding boxes (eliminates duplicate stacked boxes on 1 person)
+        def _suppress_overlapping_persons(p_list: list[dict], iou_thresh: float = 0.45) -> list[dict]:
+            if not p_list:
+                return []
+            sorted_p = sorted(p_list, key=lambda x: x.get("confidence", 0.0), reverse=True)
+            keep: list[dict] = []
+            for p in sorted_p:
+                box_p = p["box"]
+                should_keep = True
+                for k in keep:
+                    box_k = k["box"]
+                    if self._compute_walk_robust_similarity(box_p, box_k) >= iou_thresh:
+                        should_keep = False
+                        break
+                if should_keep:
+                    keep.append(p)
+            return keep
+
+        # 2. Fallback: If no person box detected by YOLO, synthesize ONE merged container enclosing all PPE items
+        if not raw_persons and ppe_items:
+            min_x1 = min(p["box"][0] for p in ppe_items)
+            min_y1 = min(p["box"][1] for p in ppe_items)
+            max_x2 = max(p["box"][2] for p in ppe_items)
+            max_y2 = max(p["box"][3] for p in ppe_items)
+            mean_conf = float(np.mean([p["confidence"] for p in ppe_items]))
+            
+            w_box = [
+                max(0, min_x1 - 40),
+                max(0, min_y1 - 30),
+                max_x2 + 40,
+                max_y2 + 160
+            ]
+            raw_persons.append({
+                "raw_id": None,
+                "box": w_box,
+                "class_name": "person",
+                "confidence": mean_conf,
+            })
+        else:
+            raw_persons = _suppress_overlapping_persons(raw_persons, iou_thresh=0.45)
+
+        # ── Walk-Robust Spatial Track Memory Matching (handles scale changes) ──
+        persons: list[dict] = []
+        used_memory_ids: set[int] = set()
+
+        for rp in raw_persons:
+            box = rp["box"]
+            raw_id = rp["raw_id"]
+            assigned_id = None
+
+            # 1. Match against active track memory using walk-robust similarity
+            best_sim = 0.0
+            best_id = None
+            for mem_id, mem_data in self._track_memory.items():
+                if mem_id in used_memory_ids:
+                    continue
+                sim = self._compute_walk_robust_similarity(box, mem_data["box"])
+                if sim > best_sim:
+                    best_sim = sim
+                    best_id = mem_id
+
+            if best_sim >= 0.25 and best_id is not None:
+                assigned_id = best_id
+            elif raw_id is not None and raw_id > 0 and raw_id not in used_memory_ids:
+                assigned_id = raw_id
+            else:
+                assigned_id = self._next_synthetic_id
+                self._next_synthetic_id += 1
+
+            used_memory_ids.add(assigned_id)
+            self._track_memory[assigned_id] = {
+                "box": box,
+                "last_frame": self._frame_count,
+            }
+
+            persons.append({
+                "id":         assigned_id,
+                "box":        box,
+                "class_name": "person",
+                "confidence": rp["confidence"],
+            })
+
+        # Clean stale tracking memory older than 45 frames
+        stale_ids = [
+            tid for tid, tdata in self._track_memory.items()
+            if self._frame_count - tdata["last_frame"] > 45
+        ]
+        for tid in stale_ids:
+            del self._track_memory[tid]
 
         # ── Stage 3: person-to-PPE association ────────────────────────────────
         person_ppe_map = associate_ppe_to_persons(persons, ppe_items)
 
         # ── Stage 4+5: rule engine + worker tracker + temporal validation ─────
-        # Get zone requirements for majority voting
+        # Get zone requirements for active zone
         zone_cfg = self._rule_engine.get_zone(active_zone)
         required_ppe = zone_cfg.required_ppe if zone_cfg else {"helmet", "vest"}
 
@@ -182,7 +310,6 @@ class PPEDetector:
             pid  = person["id"]
             ppes = person_ppe_map.get(pid, [])
 
-            # Raw detected set from this frame (all classes)
             raw_detected = {p["class_name"] for p in ppes}
             mean_conf    = (
                 float(np.mean([p["confidence"] for p in ppes]))
@@ -196,10 +323,9 @@ class PPEDetector:
                 required_ppe=required_ppe,
             )
 
-            # Use smoothed results for compliance (not raw per-frame)
             compliant = len(smoothed_missing) == 0
 
-            # Still run rule engine for MQTT temporal validation
+            # Evaluate rule engine
             compliance = self._rule_engine.evaluate(
                 worker_id=pid,
                 detected_ppe=smoothed_detected,
@@ -207,14 +333,20 @@ class PPEDetector:
                 confidence=mean_conf,
             )
 
+            # Stage 5: Temporal validation — only fire alert after sustained violation
+            temporal_alert, temporal_reason = self._temporal_validator.update(compliance)
+
             with self._lock:
-                is_new_alert = self._publisher.process_compliance_result(compliance)
+                mqtt_alert = self._publisher.process_compliance_result(compliance)
+
+            is_new_alert = temporal_alert  # Gated by temporal validation, not single-frame
 
             worker_states.append({
                 "worker_id":   f"Worker-{pid}",
                 "zone":        active_zone,
                 "detected_ppe":sorted(smoothed_detected),
                 "missing_ppe": sorted(smoothed_missing),
+                "required_ppe":sorted(required_ppe),
                 "compliant":   compliant,
                 "confidence":  round(mean_conf, 3),
                 "is_new_alert": is_new_alert,
