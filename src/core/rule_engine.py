@@ -39,14 +39,21 @@ class ZoneConfig:
         detected_ppe: set[str],
         confidence: float = 1.0,
     ) -> ComplianceResult:
-        missing = set(self.required_ppe - detected_ppe)
-        
+        aliases = getattr(config, "PPE_ALIASES", {})
+        norm_required = {aliases.get(i, i): i for i in self.required_ppe}
+        norm_detected = {aliases.get(i, i): i for i in detected_ppe}
+
+        norm_missing_keys = set(norm_required.keys()) - set(norm_detected.keys())
+        norm_extra_keys   = set(norm_detected.keys()) - set(norm_required.keys())
+
+        missing = {norm_required[k] for k in norm_missing_keys}
+        extra   = {norm_detected[k] for k in norm_extra_keys}
+
         # Check restricted zone authorization if configured
         w_str = f"Worker-{worker_id}" if isinstance(worker_id, int) else str(worker_id)
         if self.authorised_workers and w_str not in self.authorised_workers:
             missing.add("unauthorised_entry")
 
-        extra = detected_ppe - self.required_ppe
         return ComplianceResult(
             worker_id=worker_id if isinstance(worker_id, int) else 0,
             zone=self.name,

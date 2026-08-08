@@ -19,7 +19,7 @@ MQTT_USE_TLS  = os.getenv("MQTT_USE_TLS", "false").lower() == "true"
 # ── Model ─────────────────────────────────────────────────────────────────────
 DEFAULT_MODEL_PATH  = os.getenv(
     "MODEL_PATH",
-    "experiments/ppe_training/custom_model/weights/best.pt"
+    "mods/best (1).pt"
 )
 FALLBACK_MODEL_PATH = "models/yolo11n.pt"
 DETECTION_CONF      = float(os.getenv("DETECTION_CONF", "0.20"))
@@ -29,23 +29,27 @@ TRACKER_CONFIG      = "bytetrack.yaml"
 INFERENCE_IMG_SIZE       = int(os.getenv("INFERENCE_IMG_SIZE", "640"))
 INFERENCE_HALF_PRECISION = os.getenv("INFERENCE_HALF_PRECISION", "true").lower() == "true"
 
-# ── PPE classes (must match data.yaml order) ───────────────────────────────
+# ── PPE classes (must match model / data.yaml order) ─────────────────────────
 PPE_CLASSES = [
-    "helmet",
-    "no-helmet",
-    "vest",
-    "no-vest",
-    "person",
-    "gloves",
-    "no-gloves",
-    "boots",
-    "no-boots",
-    "goggles",
-    "no-goggles",
-    "ear-mufs",
-    "face-guard",
-    "safety-suit",
-    "tool",
+    "Boots",                # 0
+    "Ear-Protection",       # 1
+    "Glass",                # 2
+    "Glove",                # 3
+    "Hard_hat",             # 4
+    "Mask",                 # 5
+    "No-Boots",             # 6
+    "No-Ear-Protection",    # 7
+    "No-Glass",             # 8
+    "No-Glove",             # 9
+    "No-Helmet",            # 10
+    "No-Mask",              # 11
+    "No-Vest",              # 12
+    "Worker",               # 13
+    "Vest",                 # 14
+    "Circular_Saw",         # 15
+    "Fire_Extinguisher",    # 16
+    "Fire_prevention_Net",  # 17
+    "Welding_Equipment",    # 18
 ]
 
 # ── Stage-3 association ───────────────────────────────────────────────────────
@@ -65,12 +69,23 @@ WORKER_TRACKER_STALE_FRAMES = int(os.getenv("WORKER_TRACKER_STALE_FRAMES", "60")
 # ── Violation deduplication ───────────────────────────────────────────────────
 VIOLATION_COOLDOWN_SECS = float(os.getenv("VIOLATION_COOLDOWN_SECS", "30.0"))  # per-worker DB write cooldown
 
+# ── PPE Aliases & Normalization ───────────────────────────────────────────────
+PPE_ALIASES: dict[str, str] = {
+    "helmet":            "Hard_hat",
+    "vest":              "Vest",
+    "gloves":            "Glove",
+    "boots":             "Boots",
+    "goggles":           "Glass",
+    "ear-mufs":          "Ear-Protection",
+    "face-guard":        "Mask",
+}
+
 # ── Zone rule engine (Stage-4) ────────────────────────────────────────────────
 # Each zone maps to a set of required PPE class names.
 ZONE_RULES: dict[str, set[str]] = {
-    "general_plant":       {"helmet", "vest"},
-    "restricted_machinery":{"helmet", "vest", "goggles", "ear-mufs", "face-guard"},
-    "hazardous_material":  {"helmet", "safety-suit", "boots", "gloves", "goggles"},
+    "general_plant":       {"Hard_hat", "Vest"},
+    "restricted_machinery":{"Hard_hat", "Vest", "Glass", "Ear-Protection", "Mask"},
+    "hazardous_material":  {"Hard_hat", "Vest", "Boots", "Glove", "Glass", "Mask"},
 }
 
 DEFAULT_ZONE = "general_plant"

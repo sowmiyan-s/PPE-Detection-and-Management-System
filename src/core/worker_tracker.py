@@ -22,17 +22,25 @@ from src.core import config
 
 # ── Positive PPE classes (the ones that satisfy zone requirements) ────────────
 POSITIVE_PPE: set[str] = {
-    "helmet", "vest", "gloves", "boots", "goggles",
-    "ear-mufs", "face-guard", "safety-suit",
+    "Hard_hat", "Vest", "Glove", "Boots", "Glass", "Ear-Protection", "Mask",
+    "Circular_Saw", "Fire_Extinguisher", "Fire_prevention_Net", "Welding_Equipment",
+    "helmet", "vest", "gloves", "boots", "goggles", "ear-mufs", "face-guard", "safety-suit",
 }
 
 # Negative classes map to their positive counterpart
 NEGATIVE_TO_POSITIVE: dict[str, str] = {
-    "no-helmet":  "helmet",
-    "no-vest":    "vest",
-    "no-gloves":  "gloves",
-    "no-boots":   "boots",
-    "no-goggles": "goggles",
+    "No-Helmet":         "Hard_hat",
+    "no-helmet":         "helmet",
+    "No-Vest":           "Vest",
+    "no-vest":           "vest",
+    "No-Glove":          "Glove",
+    "no-gloves":         "gloves",
+    "No-Boots":          "Boots",
+    "no-boots":          "boots",
+    "No-Glass":          "Glass",
+    "no-goggles":        "goggles",
+    "No-Ear-Protection": "Ear-Protection",
+    "No-Mask":           "Mask",
 }
 
 

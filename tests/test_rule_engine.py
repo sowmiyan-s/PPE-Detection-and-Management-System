@@ -55,9 +55,9 @@ def test_engine_hazardous_material_requires_full_kit(engine):
                              detected_ppe={"helmet", "safety-suit"},
                              zone="hazardous_material")
     assert result.compliant is False
-    assert "boots" in result.missing_ppe
-    assert "gloves" in result.missing_ppe
-    assert "goggles" in result.missing_ppe
+    assert any(b in result.missing_ppe for b in ("Boots", "boots"))
+    assert any(g in result.missing_ppe for g in ("Glove", "gloves"))
+    assert any(g in result.missing_ppe for g in ("Glass", "goggles"))
 
 
 def test_engine_unknown_zone_falls_back(engine):

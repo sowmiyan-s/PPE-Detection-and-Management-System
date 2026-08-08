@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Plus, X, ShieldAlert } from "lucide-react";
 
 import { AppShell, PageHeader } from "@/components/app-shell";
@@ -74,8 +74,7 @@ function ZonesPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const { data: apiData, loading, refetch: fetchZones } = useSessionFetch<any>("/api/zones", { zones: [], db_zones: [] });
 
-  // Compute config from apiData
-  const config = useMemo<Zone[]>(() => {
+  const initialConfig = useMemo<Zone[]>(() => {
     const dbZones = apiData.db_zones || [];
     const ruleZones = apiData.zones || [];
     if (dbZones.length > 0) return dbZones.map(apiZoneToLocal);
@@ -83,9 +82,15 @@ function ZonesPage() {
     return [];
   }, [apiData]);
 
-  const setConfig = (updater: (c: Zone[]) => Zone[]) => {
-    // We update via backend, but this allows optimistic updates if needed
-  };
+  const [zones, setZones] = useState<Zone[]>([]);
+
+  useEffect(() => {
+    if (initialConfig.length > 0 && zones.length === 0) {
+      setZones(initialConfig);
+    }
+  }, [initialConfig, zones.length]);
+
+  const config = zones.length > 0 ? zones : initialConfig;
 
   // New Zone Form State
   const [newZoneName, setNewZoneName] = useState("");
@@ -95,8 +100,29 @@ function ZonesPage() {
   const [newDwellSeconds, setNewDwellSeconds] = useState(2);
   const [newConfidence, setNewConfidence] = useState(0.60);
 
-  const update = (id: string, patch: Partial<Zone>) =>
-    setConfig((c) => c.map((z) => (z.id === id ? { ...z, ...patch } : z)));
+  const update = (id: string, patch: Partial<Zone>) => {
+    setZones((prev) => {
+      const base = prev.length > 0 ? prev : initialConfig;
+      const updated = base.map((z) => (z.id === id ? { ...z, ...patch } : z));
+      const targetZone = updated.find((z) => z.id === id);
+      if (targetZone) {
+        const requiredPpe = CONFIGURABLE_PPE.filter((k) => targetZone.required[k]);
+        fetch("/api/zones", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: targetZone.id,
+            name: targetZone.name,
+            description: targetZone.kind,
+            required_ppe: requiredPpe,
+          }),
+        })
+          .then(() => invalidateSessionCache("/api/zones"))
+          .catch((err) => console.error("Failed to sync zone update to backend", err));
+      }
+      return updated;
+    });
+  };
 
   const handleAddZone = (e: React.FormEvent) => {
     e.preventDefault();
@@ -112,18 +138,25 @@ function ZonesPage() {
       confidence: newConfidence,
     };
 
-    setConfig((prev) => [...prev, newZone]);
+    setZones((prev) => [...(prev.length > 0 ? prev : initialConfig), newZone]);
     setShowAddModal(false);
 
     // Reset Form
     setNewZoneName("");
     setNewRequired({ ...defaultRequired });
 
+    const requiredPpe = CONFIGURABLE_PPE.filter((k) => newZone.required[k]);
+
     // Notify Backend API
     fetch("/api/zones", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(newZone),
+      body: JSON.stringify({
+        id: newZone.id,
+        name: newZone.name,
+        description: newZone.kind,
+        required_ppe: requiredPpe,
+      }),
     })
       .then(() => {
         invalidateSessionCache("/api/zones");

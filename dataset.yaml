@@ -8,18 +8,30 @@ val:   images/val             # validation images (relative to path)
 test:  images/test            # test images       (relative to path, optional)
 
 # Number of classes
-nc: 8
+nc: 19
 
 # Class names (must match the order used during labelling)
 names:
-  0: person
-  1: helmet
-  2: vest
-  3: boots
-  4: safety_belt
-  5: lanyard
-  6: hook
-  7: anchor_point
+  0: Boots
+  1: Ear-Protection
+  2: Glass
+  3: Glove
+  4: Hard_hat
+  5: Mask
+  6: No-Boots
+  7: No-Ear-Protection
+  8: No-Glass
+  9: No-Glove
+  10: No-Helmet
+  11: No-Mask
+  12: No-Vest
+  13: Worker
+  14: Vest
+  15: Circular_Saw
+  16: Fire_Extinguisher
+  17: Fire_prevention_Net
+  18: Welding_Equipment
+
 
 # ── Notes ──────────────────────────────────────────────────────────────────────
 # Expected directory layout:

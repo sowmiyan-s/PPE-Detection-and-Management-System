@@ -37,6 +37,10 @@ log = logging.getLogger(__name__)
 # ── Class definitions (must match data.yaml) ────────────────────────────────
 
 ALL_PPE_CLASSES: set[str] = {
+    "Boots", "Ear-Protection", "Glass", "Glove", "Hard_hat", "Mask",
+    "No-Boots", "No-Ear-Protection", "No-Glass", "No-Glove", "No-Helmet",
+    "No-Mask", "No-Vest", "Vest", "Circular_Saw", "Fire_Extinguisher",
+    "Fire_prevention_Net", "Welding_Equipment",
     "helmet", "no-helmet", "vest", "no-vest", "gloves", "no-gloves", "boots", 
     "no-boots", "goggles", "no-goggles", "ear-mufs", "face-guard", "safety-suit",
     "tool", "safety_hook"
@@ -133,7 +137,7 @@ class PPEDetector:
                 box        = boxes.xyxy[i].tolist()
                 conf       = float(boxes.conf[i].item())
 
-                if class_name in ("person", "worker", "human"):
+                if class_name.lower() in ("person", "worker", "human"):
                     track_id = (
                         int(boxes.id[i].item())
                         if (boxes.id is not None and i < len(boxes.id) and boxes.id[i] is not None)

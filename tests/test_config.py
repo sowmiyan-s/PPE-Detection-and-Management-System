@@ -30,9 +30,9 @@ def test_zone_rules_not_empty():
 
 def test_ppe_classes_list():
     from src.core import config
-    assert "helmet" in config.PPE_CLASSES
-    assert "vest"   in config.PPE_CLASSES
-    assert "boots"  in config.PPE_CLASSES
+    assert "Hard_hat" in config.PPE_CLASSES or "helmet" in config.PPE_CLASSES
+    assert "Vest" in config.PPE_CLASSES or "vest" in config.PPE_CLASSES
+    assert "Boots" in config.PPE_CLASSES or "boots" in config.PPE_CLASSES
 
 
 def test_env_override_mqtt_broker(monkeypatch):

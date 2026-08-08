@@ -4,6 +4,9 @@ from motor.motor_asyncio import AsyncIOMotorClient
 
 MONGODB_URI = "mongodb+srv://rdxsparrowgaming_db_user:DBL67D8Qc0RcqlCf@cluster0.er22sa5.mongodb.net/edgevision?retryWrites=true&w=majority"
 
+import pytest
+
+@pytest.mark.asyncio
 async def test_write():
     try:
         print("Creating TLSv1.2 SSL context...")
