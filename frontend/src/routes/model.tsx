@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Cpu, Gauge, Thermometer, Timer } from "lucide-react";
+import { useSessionFetch } from "@/hooks/use-session-fetch";
 
 import { AppShell, PageHeader, StatCard } from "@/components/app-shell";
 
@@ -45,37 +46,23 @@ type ModelMetrics = {
 };
 
 function ModelPage() {
-  const [metrics, setMetrics] = useState<ModelMetrics | null>(null);
+  const { data: metrics } = useSessionFetch<ModelMetrics | null>("/api/model-metrics", null);
   const [latencyHistory, setLatencyHistory] = useState<{ t: string; p50: number; p95: number }[]>([]);
 
   useEffect(() => {
-    const fetchMetrics = async () => {
-      try {
-        const res = await fetch("/api/model-metrics");
-        if (res.ok) {
-          const data = await res.json();
-          setMetrics(data);
-
-          // Build latency history from live FPS data
-          const now = new Date();
-          setLatencyHistory((prev) => {
-            const entry = {
-              t: `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`,
-              p50: data.current_fps > 0 ? Math.round(1000 / data.current_fps) : 0,
-              p95: data.p95_latency_ms || 0,
-            };
-            const updated = [...prev, entry].slice(-30); // Keep last 30 data points
-            return updated;
-          });
-        }
-      } catch (err) {
-        console.error("Failed to fetch model metrics", err);
-      }
-    };
-    fetchMetrics();
-    const int = setInterval(fetchMetrics, 5000);
-    return () => clearInterval(int);
-  }, []);
+    if (metrics) {
+      const now = new Date();
+      setLatencyHistory((prev) => {
+        const entry = {
+          t: `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`,
+          p50: metrics.current_fps > 0 ? Math.round(1000 / metrics.current_fps) : 0,
+          p95: metrics.p95_latency_ms || 0,
+        };
+        const updated = [...prev, entry].slice(-30);
+        return updated;
+      });
+    }
+  }, [metrics]);
 
   const currentFps = metrics?.current_fps ?? 0;
   const p95Latency = metrics?.p95_latency_ms ?? 0;

@@ -21,38 +21,56 @@ DEFAULT_MODEL_PATH  = os.getenv(
     "MODEL_PATH",
     "experiments/ppe_training/custom_model/weights/best.pt"
 )
-FALLBACK_MODEL_PATH = "models/yolov8n.pt"
+FALLBACK_MODEL_PATH = "models/yolo11n.pt"
 DETECTION_CONF      = float(os.getenv("DETECTION_CONF", "0.20"))
 TRACKER_CONFIG      = "bytetrack.yaml"
 
-# ── PPE classes (must match dataset.yaml order) ───────────────────────────────
+# Inference Optimization (Jetson / TensorRT / FP16)
+INFERENCE_IMG_SIZE       = int(os.getenv("INFERENCE_IMG_SIZE", "640"))
+INFERENCE_HALF_PRECISION = os.getenv("INFERENCE_HALF_PRECISION", "true").lower() == "true"
+
+# ── PPE classes (must match data.yaml order) ───────────────────────────────
 PPE_CLASSES = [
-    "person",
     "helmet",
+    "no-helmet",
     "vest",
+    "no-vest",
+    "person",
+    "gloves",
+    "no-gloves",
     "boots",
-    "safety_belt",
-    "lanyard",
-    "hook",
-    "anchor_point",
+    "no-boots",
+    "goggles",
+    "no-goggles",
+    "ear-mufs",
+    "face-guard",
+    "safety-suit",
+    "tool",
 ]
 
 # ── Stage-3 association ───────────────────────────────────────────────────────
 PPE_CONTAINMENT_THRESHOLD = float(os.getenv("PPE_CONTAINMENT_THRESHOLD", "0.40"))
 
 # ── Stage-5 temporal validation ───────────────────────────────────────────────
-TEMPORAL_WINDOW        = int(os.getenv("TEMPORAL_WINDOW", "10"))       # frames
-TEMPORAL_MIN_HITS      = int(os.getenv("TEMPORAL_MIN_HITS", "8"))      # out of WINDOW
+TEMPORAL_WINDOW        = int(os.getenv("TEMPORAL_WINDOW", "8"))        # frames
+TEMPORAL_MIN_HITS      = int(os.getenv("TEMPORAL_MIN_HITS", "5"))      # out of WINDOW
 TEMPORAL_MIN_CONF      = float(os.getenv("TEMPORAL_MIN_CONF", "0.30")) # confidence
 TEMPORAL_MIN_ZONE_SECS = float(os.getenv("TEMPORAL_MIN_ZONE_SECS", "2.0"))  # seconds
+
+# ── Persistent worker tracker (majority voting across frames) ─────────────────
+WORKER_TRACKER_WINDOW    = int(os.getenv("WORKER_TRACKER_WINDOW", "10"))   # sliding window size
+WORKER_TRACKER_MIN_VOTES = int(os.getenv("WORKER_TRACKER_MIN_VOTES", "5")) # min detections to confirm PPE
+WORKER_TRACKER_STALE_FRAMES = int(os.getenv("WORKER_TRACKER_STALE_FRAMES", "60"))  # cleanup after N absent frames
+
+# ── Violation deduplication ───────────────────────────────────────────────────
+VIOLATION_COOLDOWN_SECS = float(os.getenv("VIOLATION_COOLDOWN_SECS", "30.0"))  # per-worker DB write cooldown
 
 # ── Zone rule engine (Stage-4) ────────────────────────────────────────────────
 # Each zone maps to a set of required PPE class names.
 ZONE_RULES: dict[str, set[str]] = {
     "general_plant":       {"helmet", "vest"},
-    "construction":        {"helmet", "vest", "boots"},
-    "work_at_height":      {"helmet", "vest", "boots", "safety_belt", "hook"},
-    "restricted_machinery":{"helmet", "vest"},
+    "restricted_machinery":{"helmet", "vest", "goggles", "ear-mufs", "face-guard"},
+    "hazardous_material":  {"helmet", "safety-suit", "boots", "gloves", "goggles"},
 }
 
 DEFAULT_ZONE = "general_plant"

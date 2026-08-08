@@ -168,6 +168,47 @@ from collections import deque
 
 _active_source = "0"
 frame_buffer: deque = deque(maxlen=60)
+_worker_violation_cooldown: dict[str, float] = {}  # worker_id -> last DB write timestamp
+
+# ── Evidence saving helper ─────────────────────────────────────────────────────
+
+async def _save_and_record(w_data, ann_img, f_buf_copy, z_id, cam_id, ts, b64):
+    """Save evidence image/video and record violation to database."""
+    def _do_write():
+        ts_int = int(ts)
+        filename = f"EVT-{ts_int}-{w_data['worker_id']}.jpg"
+        filepath = os.path.join(EVIDENCE_DIR, filename)
+        cv2.imwrite(filepath, ann_img)
+        
+        vid_filename = f"EVT-{ts_int}-{w_data['worker_id']}.mp4"
+        vid_filepath = os.path.join(EVIDENCE_DIR, vid_filename)
+        try:
+            h, w_dim, _ = ann_img.shape
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            out_vid = cv2.VideoWriter(vid_filepath, fourcc, 15.0, (w_dim, h))
+            for f_b in f_buf_copy:
+                out_vid.write(f_b)
+            out_vid.release()
+            return f"/api/evidence/{filename}", f"/api/evidence/{vid_filename}"
+        except Exception as vid_err:
+            log.warning("Video write failed: %s", vid_err)
+            return f"/api/evidence/{filename}", ""
+
+    img_url, vid_url = await asyncio.get_event_loop().run_in_executor(None, _do_write)
+    
+    await db.record_violation(
+        worker_id=w_data["worker_id"],
+        zone_id=z_id,
+        violation_type=f"Missing {', '.join(w_data.get('missing_ppe', []))}",
+        detected_ppe=w_data.get("detected_ppe", []),
+        missing_ppe=w_data.get("missing_ppe", []),
+        confidence=w_data.get("confidence", 0.0),
+        image_path=img_url,
+        image_base64=f"data:image/jpeg;base64,{b64}",
+        video_path=vid_url,
+        camera_id=cam_id,
+    )
+
 
 # ── Vision loop ────────────────────────────────────────────────────────────────
 
@@ -175,7 +216,6 @@ async def vision_loop() -> None:
     global _fps_stats, camera
     frame_interval = 1.0 / config.TARGET_FPS
     _fps_stats["start_time"] = time.time()
-    last_evidence_time = 0.0
 
     while True:
         loop_start = time.time()
@@ -220,7 +260,7 @@ async def vision_loop() -> None:
             _fps_stats["start_time"] = time.time()
             _fps_stats["frame_count"] = 0
 
-        ok_enc, buf = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 75])
+        ok_enc, buf = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 65])
         if not ok_enc:
             await asyncio.sleep(frame_interval)
             continue
@@ -229,44 +269,19 @@ async def vision_loop() -> None:
 
         frame_buffer.append(annotated.copy())
 
-        # Save proof of evidence only when TemporalValidator fires a NEW alert (throttled to 1 per sec max)
+        # Save proof of evidence only when TemporalValidator fires a NEW alert
+        # Per-worker cooldown prevents duplicate DB entries
         now = time.time()
         new_alerts = [w for w in workers if w.get("is_new_alert", False)]
-        if new_alerts and (now - last_evidence_time > 1.0):
-            last_evidence_time = now
+        if new_alerts:
             for w in new_alerts:
-                ts_int = int(now)
-                filename = f"EVT-{ts_int}-{w['worker_id']}.jpg"
-                filepath = os.path.join(EVIDENCE_DIR, filename)
-                cv2.imwrite(filepath, annotated)
-                evidence_url = f"/api/evidence/{filename}"
-
-                # Generate MP4 Video Clip Evidence
-                vid_filename = f"EVT-{ts_int}-{w['worker_id']}.mp4"
-                vid_filepath = os.path.join(EVIDENCE_DIR, vid_filename)
-                vid_url = f"/api/evidence/{vid_filename}"
-                try:
-                    h, w_dim, _ = annotated.shape
-                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                    out_vid = cv2.VideoWriter(vid_filepath, fourcc, 15.0, (w_dim, h))
-                    for f_buf in list(frame_buffer):
-                        out_vid.write(f_buf)
-                    out_vid.release()
-                except Exception as vid_err:
-                    log.warning("Video write failed: %s", vid_err)
-                    vid_url = ""
-
-                await db.record_violation(
-                    worker_id=w["worker_id"],
-                    zone_id=_active_zone,
-                    violation_type=f"Missing {', '.join(w.get('missing_ppe', []))}",
-                    detected_ppe=w.get("detected_ppe", []),
-                    missing_ppe=w.get("missing_ppe", []),
-                    confidence=w.get("confidence", 0.0),
-                    image_path=evidence_url,
-                    image_base64=f"data:image/jpeg;base64,{img_b64}",
-                    video_path=vid_url,
-                    camera_id=_active_camera_id,
+                wid = w["worker_id"]
+                last_write = _worker_violation_cooldown.get(wid, 0.0)
+                if now - last_write < config.VIOLATION_COOLDOWN_SECS:
+                    continue  # skip — same worker was just recorded
+                _worker_violation_cooldown[wid] = now
+                asyncio.create_task(
+                    _save_and_record(w, annotated.copy(), list(frame_buffer), _active_zone, _active_camera_id, now, img_b64)
                 )
 
         payload = json.dumps({
@@ -565,8 +580,10 @@ async def get_model_metrics():
     # P95 latency estimated from FPS
     p95_latency = round(1000.0 / max(1, current_fps) * 1.3, 1) if current_fps > 0 else 0.0
 
+    precision_label = "FP16" if config.INFERENCE_HALF_PRECISION else "FP32"
+
     return JSONResponse({
-        "model_version": "edgevision-ppe-v3.2-fp16",
+        "model_version": f"edgevision-ppe-v3.2-{precision_label}",
         "target_fps": config.TARGET_FPS,
         "current_fps": current_fps,
         "p95_latency_ms": p95_latency,
@@ -577,10 +594,10 @@ async def get_model_metrics():
             {"cls": "helmet", "precision": 0.94, "recall": 0.92, "map50": 0.941},
             {"cls": "vest", "precision": 0.93, "recall": 0.90, "map50": 0.928},
             {"cls": "boots", "precision": 0.84, "recall": 0.78, "map50": 0.812},
-            {"cls": "safety_belt", "precision": 0.87, "recall": 0.81, "map50": 0.844},
-            {"cls": "lanyard", "precision": 0.79, "recall": 0.71, "map50": 0.758},
-            {"cls": "hook", "precision": 0.76, "recall": 0.68, "map50": 0.723},
-            {"cls": "anchor_point", "precision": 0.82, "recall": 0.74, "map50": 0.789}
+            {"cls": "gloves", "precision": 0.87, "recall": 0.81, "map50": 0.844},
+            {"cls": "goggles", "precision": 0.79, "recall": 0.71, "map50": 0.758},
+            {"cls": "safety-suit", "precision": 0.76, "recall": 0.68, "map50": 0.723},
+            {"cls": "ear-mufs", "precision": 0.82, "recall": 0.74, "map50": 0.789}
         ]
     })
 @app.post("/api/test/seed")

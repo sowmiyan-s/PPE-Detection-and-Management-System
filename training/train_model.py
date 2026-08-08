@@ -38,15 +38,15 @@ torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
 
 def main():
-    # 1. Load a pretrained model (YOLOv8 Nano is HIGHLY recommended for Jetson)
-    print("Loading YOLOv8n base model...")
-    model = YOLO("yolov8n.pt")  # 'n' is nano: crucial for real-time FPS on Jetson hardware
+    # 1. Load a pretrained model (YOLO11 Nano is HIGHLY recommended for Jetson)
+    print("Loading YOLO11n base model...")
+    model = YOLO("yolo11n.pt")  # 'n' is nano: crucial for real-time FPS on Jetson hardware
     
     # 2. Train the model
     # NOTE: Ensure you have your dataset ready and the data.yaml path is correct.
     print("Starting training process...")
     results = model.train(
-        data="dataset.yaml",       # Path to your dataset's YAML configuration file
+        data="data.yaml",       # Path to your dataset's YAML configuration file
         epochs=50,              # Number of training epochs (increase to 100-300 for production accuracy)
         imgsz=640,              # Standard YOLO image size
         batch=4,                # Lowered to 4 to guarantee no Out Of Memory on 4GB VRAM
@@ -61,9 +61,9 @@ def main():
     )
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train YOLOv8 PPE detection model")
-    parser.add_argument("--model",   default="yolov8n.pt",       help="Base model weights")
-    parser.add_argument("--data",    default="dataset.yaml",      help="Dataset config path")
+    parser = argparse.ArgumentParser(description="Train YOLO11 PPE detection model")
+    parser.add_argument("--model",   default="yolo11n.pt",       help="Base model weights")
+    parser.add_argument("--data",    default="data.yaml",      help="Dataset config path")
     parser.add_argument("--epochs",  type=int,   default=50,      help="Training epochs (recommend 100-300 for production)")
     parser.add_argument("--imgsz",   type=int,   default=640,     help="Input image size")
     parser.add_argument("--batch",   type=int,   default=8,       help="Batch size (-1 = auto)")

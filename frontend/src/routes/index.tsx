@@ -12,6 +12,7 @@ import {
 } from "recharts";
 import { AlertTriangle, Camera, HardHat, Percent, Users } from "lucide-react";
 import { useState, useEffect } from "react";
+import { useSessionFetch } from "@/hooks/use-session-fetch";
 
 import { AppShell, PageHeader, StatCard } from "@/components/app-shell";
 import { formatTime } from "@/lib/mock-data";
@@ -50,51 +51,19 @@ type ReportsData = { total_violations: number; avg_compliance: number; by_zone: 
 type TickerItem = { id: string; text: string; level: "critical" | "warn" | "ok"; at: string };
 
 function Overview() {
-  const [health, setHealth] = useState<HealthData | null>(null);
-  const [stats, setStats] = useState<StatsData | null>(null);
-  const [reports, setReports] = useState<ReportsData | null>(null);
-  const [ticker, setTicker] = useState<TickerItem[]>([]);
+  const { data: health } = useSessionFetch<HealthData | null>("/api/health", null);
+  const { data: stats } = useSessionFetch<StatsData | null>("/api/stats", null);
+  const { data: reports } = useSessionFetch<ReportsData | null>("/api/reports", null);
+  const { data: violations } = useSessionFetch<any[]>("/api/violations", []);
 
-  useEffect(() => {
-    const fetchAll = async () => {
-      try {
-        const [healthRes, statsRes, reportsRes, violationsRes] = await Promise.allSettled([
-          fetch("/api/health"),
-          fetch("/api/stats"),
-          fetch("/api/reports"),
-          fetch("/api/violations"),
-        ]);
-
-        if (healthRes.status === "fulfilled" && healthRes.value.ok) {
-          setHealth(await healthRes.value.json());
-        }
-        if (statsRes.status === "fulfilled" && statsRes.value.ok) {
-          setStats(await statsRes.value.json());
-        }
-        if (reportsRes.status === "fulfilled" && reportsRes.value.ok) {
-          setReports(await reportsRes.value.json());
-        }
-        if (violationsRes.status === "fulfilled" && violationsRes.value.ok) {
-          const violations = await violationsRes.value.json();
-          if (Array.isArray(violations)) {
-            setTicker(
-              violations.slice(0, 8).map((v: any) => ({
-                id: v.id,
-                text: `${v.workerId || "Worker"} · ${v.type || "violation"} · ${v.zoneId || ""}`,
-                level: v.acknowledged ? ("ok" as const) : ("critical" as const),
-                at: formatTime(v.timestamp),
-              }))
-            );
-          }
-        }
-      } catch (err) {
-        console.error("Dashboard fetch failed", err);
-      }
-    };
-    fetchAll();
-    const int = setInterval(fetchAll, 5000);
-    return () => clearInterval(int);
-  }, []);
+  const ticker: TickerItem[] = Array.isArray(violations)
+    ? violations.slice(0, 8).map((v: any) => ({
+        id: v.id,
+        text: `${v.workerId || "Worker"} · ${v.type || "violation"} · ${v.zoneId || ""}`,
+        level: v.acknowledged ? ("ok" as const) : ("critical" as const),
+        at: formatTime(v.timestamp),
+      }))
+    : [];
 
   const violationTrend = reports?.daily_trend || [];
   const violationsByZone = (reports?.by_zone || []).map((z) => ({

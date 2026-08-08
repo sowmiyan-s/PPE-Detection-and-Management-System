@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useSessionFetch } from "@/hooks/use-session-fetch";
 import {
   Activity,
   Camera,
@@ -29,31 +29,12 @@ const nav = [
 ] as const;
 
 export function AppShell({ children }: { children: ReactNode }) {
-  const [pipelineStatus, setPipelineStatus] = useState<string>("CONNECTING...");
-  const [isActive, setIsActive] = useState(false);
+  const { data: health } = useSessionFetch<any>("/api/health", null);
 
-  useEffect(() => {
-    const fetchStatus = async () => {
-      try {
-        const res = await fetch("/api/health");
-        if (res.ok) {
-          const data = await res.json();
-          setIsActive(data.status === "ok");
-          const fps = data.fps ? `${data.fps.toFixed(1)} FPS` : "0 FPS";
-          setPipelineStatus(`PIPELINE ${data.pipeline_active ? "ACTIVE" : "IDLE"} · ${fps}`);
-        } else {
-          setIsActive(false);
-          setPipelineStatus("BACKEND OFFLINE");
-        }
-      } catch {
-        setIsActive(false);
-        setPipelineStatus("BACKEND OFFLINE");
-      }
-    };
-    fetchStatus();
-    const int = setInterval(fetchStatus, 4000);
-    return () => clearInterval(int);
-  }, []);
+  const isActive = health?.status === "ok";
+  const pipelineStatus = health 
+    ? `PIPELINE ${health.pipeline_active ? "ACTIVE" : "IDLE"} · ${health.fps ? `${health.fps.toFixed(1)} FPS` : "0 FPS"}`
+    : "CONNECTING...";
 
   return (
     <div className="flex min-h-screen">

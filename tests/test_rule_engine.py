@@ -28,8 +28,8 @@ def test_zone_config_extra_ppe_allowed():
 
 
 def test_zone_config_empty_detected():
-    zone = ZoneConfig(name="work_at_height",
-                      required_ppe={"helmet", "vest", "boots", "safety_belt", "hook"})
+    zone = ZoneConfig(name="hazardous_material",
+                      required_ppe={"helmet", "safety-suit", "boots", "gloves", "goggles"})
     result = zone.check_compliance(worker_id=4, detected_ppe=set())
     assert result.compliant is False
     assert result.missing_ppe == zone.required_ppe
@@ -50,14 +50,14 @@ def test_engine_evaluates_known_zone(engine):
     assert result.zone == "general_plant"
 
 
-def test_engine_work_at_height_requires_full_kit(engine):
+def test_engine_hazardous_material_requires_full_kit(engine):
     result = engine.evaluate(worker_id=2,
-                             detected_ppe={"helmet", "vest"},
-                             zone="work_at_height")
+                             detected_ppe={"helmet", "safety-suit"},
+                             zone="hazardous_material")
     assert result.compliant is False
     assert "boots" in result.missing_ppe
-    assert "safety_belt" in result.missing_ppe
-    assert "hook" in result.missing_ppe
+    assert "gloves" in result.missing_ppe
+    assert "goggles" in result.missing_ppe
 
 
 def test_engine_unknown_zone_falls_back(engine):

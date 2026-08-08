@@ -28,16 +28,18 @@ from ultralytics import YOLO
 
 from src.core import config
 from src.core.association import associate_ppe_to_persons
-from src.core.enhancer import IndustrialImageEnhancer
 from src.core.publisher import PPEMqttPublisher
 from src.core.rule_engine import RuleEngine
+from src.core.worker_tracker import WorkerTracker, POSITIVE_PPE
 
 log = logging.getLogger(__name__)
 
-# ── Class definitions (must match dataset.yaml) ────────────────────────────────
+# ── Class definitions (must match data.yaml) ────────────────────────────────
 
 ALL_PPE_CLASSES: set[str] = {
-    "helmet", "vest", "boots", "safety_belt", "lanyard", "hook", "anchor_point"
+    "helmet", "no-helmet", "vest", "no-vest", "gloves", "no-gloves", "boots", 
+    "no-boots", "goggles", "no-goggles", "ear-mufs", "face-guard", "safety-suit",
+    "tool", "safety_hook"
 }
 
 COMPLIANCE_COLOURS = {
@@ -72,13 +74,19 @@ class PPEDetector:
                         model_path, config.FALLBACK_MODEL_PATH)
             model_path = config.FALLBACK_MODEL_PATH
 
+        # Jetson / TensorRT auto-fallback: if we requested a .pt but a .engine exists, use it.
+        engine_path = model_path.replace('.pt', '.engine')
+        if os.path.exists(engine_path):
+            log.info("Found TensorRT engine at %s, preferring it for max performance.", engine_path)
+            model_path = engine_path
+
         self.model       = YOLO(model_path)
         self.default_zone = zone
 
         # ── Supporting components ───────────────────────────────────────────────
-        self._enhancer  = IndustrialImageEnhancer()
         self._publisher = PPEMqttPublisher(broker=broker, port=port, topic=topic)
         self._rule_engine = RuleEngine()
+        self._worker_tracker = WorkerTracker()
         self._lock = threading.Lock()
 
     # ── Public API ─────────────────────────────────────────────────────────────
@@ -97,14 +105,15 @@ class PPEDetector:
         worker_states   : list of dicts, one per tracked worker
         """
         active_zone = zone or self.default_zone
-        enhanced    = self._enhancer.enhance(frame)
 
-        # ── Stage 1+2: detect + track ───────────────────────────────────────
+        # ── Stage 1+2: detect + track (raw frame — no enhancer for speed) ────
         results = self.model.track(
-            enhanced,
+            frame,
             persist=True,
             tracker=config.TRACKER_CONFIG,
             conf=config.DETECTION_CONF,
+            imgsz=config.INFERENCE_IMG_SIZE,
+            quantize="fp16" if config.INFERENCE_HALF_PRECISION else "fp32",
             verbose=False,
         )
 
@@ -137,10 +146,6 @@ class PPEDetector:
                         "confidence": conf,
                     })
                 elif class_name in ALL_PPE_CLASSES:
-                    # Enforce strict 0.60 minimum confidence for helmets
-                    if class_name == "helmet" and conf < 0.60:
-                        continue
-                        
                     ppe_items.append({
                         "box":        box,
                         "class_name": class_name,
@@ -163,21 +168,37 @@ class PPEDetector:
         # ── Stage 3: person-to-PPE association ────────────────────────────────
         person_ppe_map = associate_ppe_to_persons(persons, ppe_items)
 
-        # ── Stage 4+5: rule engine + temporal validation ──────────────────────
+        # ── Stage 4+5: rule engine + worker tracker + temporal validation ─────
+        # Get zone requirements for majority voting
+        zone_cfg = self._rule_engine.get_zone(active_zone)
+        required_ppe = zone_cfg.required_ppe if zone_cfg else {"helmet", "vest"}
+
         worker_states: list[dict] = []
         for person in persons:
             pid  = person["id"]
             ppes = person_ppe_map.get(pid, [])
 
-            detected_set = {p["class_name"] for p in ppes}
+            # Raw detected set from this frame (all classes)
+            raw_detected = {p["class_name"] for p in ppes}
             mean_conf    = (
                 float(np.mean([p["confidence"] for p in ppes]))
                 if ppes else 0.0
             )
 
+            # ── Worker tracker: majority voting across frames ─────────────
+            smoothed_detected, smoothed_missing = self._worker_tracker.update(
+                worker_id=pid,
+                raw_detected=raw_detected,
+                required_ppe=required_ppe,
+            )
+
+            # Use smoothed results for compliance (not raw per-frame)
+            compliant = len(smoothed_missing) == 0
+
+            # Still run rule engine for MQTT temporal validation
             compliance = self._rule_engine.evaluate(
                 worker_id=pid,
-                detected_ppe=detected_set,
+                detected_ppe=smoothed_detected,
                 zone=active_zone,
                 confidence=mean_conf,
             )
@@ -188,20 +209,23 @@ class PPEDetector:
             worker_states.append({
                 "worker_id":   f"Worker-{pid}",
                 "zone":        active_zone,
-                "detected_ppe":sorted(detected_set),
-                "missing_ppe": sorted(compliance.missing_ppe),
-                "compliant":   compliance.compliant,
+                "detected_ppe":sorted(smoothed_detected),
+                "missing_ppe": sorted(smoothed_missing),
+                "compliant":   compliant,
                 "confidence":  round(mean_conf, 3),
                 "is_new_alert": is_new_alert,
             })
 
-            # Draw annotations
-            self._draw_person(frame, person, compliance.compliant,
-                              compliance.missing_ppe, ppes)
+            # Draw annotations using smoothed state
+            self._draw_person(frame, person, compliant,
+                              smoothed_missing, ppes)
 
-        # Draw PPE boxes without person
+        # Draw PPE item boxes
         for ppe in ppe_items:
             self._draw_ppe(frame, ppe)
+
+        # Cleanup workers that have left the scene
+        self._worker_tracker.cleanup_stale()
 
         return frame, worker_states
 

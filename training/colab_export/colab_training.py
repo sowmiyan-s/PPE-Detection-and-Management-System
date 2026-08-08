@@ -8,18 +8,18 @@ os.system('pip install ultralytics')
 
 # 3. Copy your dataset and config file from Drive into Colab's fast memory
 os.system('cp "/content/drive/MyDrive/ppe_dataset.zip" "/content/"')
-os.system('cp "/content/drive/MyDrive/dataset.yaml" "/content/"')
+os.system('cp "/content/drive/MyDrive/data.yaml" "/content/"')
 
 # 4. Unzip the dataset
 os.system('unzip -q /content/ppe_dataset.zip -d /content/')
 
 # 5. Start Training!
 from ultralytics import YOLO
-model = YOLO('yolov8n.pt') 
+model = YOLO('yolo11n.pt') 
 
 print("Starting training on Google Colab T4 GPU...")
 results = model.train(
-    data='/content/dataset.yaml', 
+    data='/content/data.yaml', 
     epochs=50, 
     imgsz=640,
     batch=16, # The Colab T4 GPU has 16GB VRAM, so batch=16 is perfect!

@@ -1,0 +1,21 @@
+path: C:\Users\Asus\Downloads\DATASET\dataset
+train: train/images
+val: val/images
+test: test/images
+nc: 15
+names:
+- helmet
+- no-helmet
+- vest
+- no-vest
+- person
+- gloves
+- no-gloves
+- boots
+- no-boots
+- goggles
+- no-goggles
+- ear-mufs
+- face-guard
+- safety-suit
+- tool

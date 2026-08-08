@@ -4,7 +4,7 @@ Stage 3 – Person-to-PPE association.
 Associates each detected PPE item with the most likely worker using a
 combination of:
   • Bounding-box containment (PPE centre inside person box)
-  • Body-region mapping  (head → helmet, torso → vest/harness/lanyard/hook,
+  • Body-region mapping  (head → helmet/goggles, torso → vest/suit,
                           foot  → boots)
   • Nearest-person fallback when containment misses
 
@@ -26,12 +26,16 @@ FEET_REGION    = (0.65, 1.00)   # bottom 35 %
 
 PPE_BODY_REGION: dict[str, tuple[float, float]] = {
     "helmet":      HEAD_REGION,
+    "no-helmet":   HEAD_REGION,
+    "goggles":     HEAD_REGION,
+    "no-goggles":  HEAD_REGION,
+    "ear-mufs":    HEAD_REGION,
+    "face-guard":  HEAD_REGION,
     "vest":        TORSO_REGION,
-    "safety_belt": TORSO_REGION,
-    "lanyard":     TORSO_REGION,
-    "hook":        TORSO_REGION,
-    "anchor_point":TORSO_REGION,
+    "no-vest":     TORSO_REGION,
+    "safety-suit": TORSO_REGION,
     "boots":       FEET_REGION,
+    "no-boots":    FEET_REGION,
 }
 
 

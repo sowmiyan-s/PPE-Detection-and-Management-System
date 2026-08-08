@@ -59,10 +59,9 @@ async def ensure_db():
         if count_zones == 0:
             log.info("Seeding initial zones...")
             zones = [
-                {"id": "ZONE-01", "name": "general_plant", "description": "General plant area – helmet and vest required", "required_ppe": ["helmet", "vest"], "authorised_workers": []},
-                {"id": "ZONE-02", "name": "construction", "description": "Active construction – helmet, vest, boots required", "required_ppe": ["helmet", "vest", "boots"], "authorised_workers": []},
-                {"id": "ZONE-03", "name": "work_at_height", "description": "Elevated work area – full harness system required", "required_ppe": ["helmet", "vest", "boots", "safety_belt", "hook"], "authorised_workers": []},
-                {"id": "ZONE-04", "name": "restricted_machinery", "description": "Restricted machinery area – authorised personnel only", "required_ppe": ["helmet", "vest"], "authorised_workers": ["Worker-101", "Worker-102"]}
+                {"id": "ZONE-01", "name": "general_plant", "description": "General plant area – basic PPE required", "required_ppe": ["helmet", "vest", "boots"], "authorised_workers": []},
+                {"id": "ZONE-02", "name": "restricted_machinery", "description": "Restricted machinery area – high hazard", "required_ppe": ["helmet", "vest", "goggles", "ear-mufs", "face-guard"], "authorised_workers": ["Worker-101", "Worker-102"]},
+                {"id": "ZONE-03", "name": "hazardous_material", "description": "Hazardous material handling zone", "required_ppe": ["helmet", "safety-suit", "boots", "gloves", "goggles"], "authorised_workers": []},
             ]
             await db.zones.insert_many(zones)
 
@@ -122,39 +121,49 @@ async def record_violation(
     camera_id: str = "CAM-01",
     model_version: str = "edgevision-ppe-v3.2-fp16"
 ) -> str:
-    """Record a violation event with image/video evidence directly in MongoDB."""
+    """Record a violation event with image/video evidence directly in MongoDB.
+    Retries up to 2 times on transient failures."""
     evt_id = f"EVT-{uuid.uuid4().hex[:6].upper()}"
-    try:
-        db = get_db()
-        event = {
-            "id": evt_id,
-            "zone_id": zone_id,
-            "camera_id": camera_id,
-            "worker_track_id": worker_id,
-            "violation_type": violation_type,
-            "detected_ppe": detected_ppe,
-            "missing_ppe": missing_ppe,
-            "confidence": confidence,
-            "image_path": image_path,
-            "image_base64": image_base64,
-            "video_path": video_path,
-            "model_version": model_version,
-            "timestamp": datetime.utcnow(),
-            "acknowledgement_status": "unacknowledged"
-        }
-        await db.violation_events.insert_one(event)
+    event = {
+        "id": evt_id,
+        "zone_id": zone_id,
+        "camera_id": camera_id,
+        "worker_track_id": worker_id,
+        "violation_type": violation_type,
+        "detected_ppe": detected_ppe,
+        "missing_ppe": missing_ppe,
+        "confidence": confidence,
+        "image_path": image_path,
+        "image_base64": image_base64,
+        "video_path": video_path,
+        "model_version": model_version,
+        "timestamp": datetime.utcnow(),
+        "acknowledgement_status": "unacknowledged"
+    }
 
-        # Audit log record
-        await db.audit_logs.insert_one({
-            "action": "VIOLATION_RECORDED",
-            "evt_id": evt_id,
-            "worker_id": worker_id,
-            "timestamp": datetime.utcnow()
-        })
+    max_retries = 2
+    for attempt in range(max_retries + 1):
+        try:
+            database = get_db()
+            await database.violation_events.insert_one(event)
 
-        log.info("Recorded violation %s for %s (camera: %s, zone: %s)", evt_id, worker_id, camera_id, zone_id)
-    except Exception as e:
-        log.error("Failed to record violation: %s", e)
+            # Audit log record
+            await database.audit_logs.insert_one({
+                "action": "VIOLATION_RECORDED",
+                "evt_id": evt_id,
+                "worker_id": worker_id,
+                "timestamp": datetime.utcnow()
+            })
+
+            log.info("Recorded violation %s for %s (camera: %s, zone: %s)", evt_id, worker_id, camera_id, zone_id)
+            return evt_id
+        except Exception as e:
+            if attempt < max_retries:
+                log.warning("DB write attempt %d failed for %s, retrying: %s", attempt + 1, evt_id, e)
+                import asyncio
+                await asyncio.sleep(0.5 * (attempt + 1))
+            else:
+                log.error("Failed to record violation %s after %d attempts: %s", evt_id, max_retries + 1, e)
     return evt_id
 
 async def acknowledge_violation(evt_id: str) -> bool:

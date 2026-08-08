@@ -3,21 +3,37 @@
 
 export type PpeKey =
   | "helmet"
+  | "no-helmet"
   | "vest"
+  | "no-vest"
+  | "person"
+  | "gloves"
+  | "no-gloves"
   | "boots"
-  | "safety_belt"
-  | "lanyard"
-  | "hook"
-  | "anchor_point";
+  | "no-boots"
+  | "goggles"
+  | "no-goggles"
+  | "ear-mufs"
+  | "face-guard"
+  | "safety-suit"
+  | "tool";
 
 export const PPE_LABELS: Record<PpeKey, string> = {
   helmet: "Helmet",
-  vest: "Reflective vest",
-  boots: "Safety boots",
-  safety_belt: "Harness / belt",
-  lanyard: "Lanyard",
-  hook: "Connected hook",
-  anchor_point: "Anchor point",
+  "no-helmet": "Missing Helmet",
+  vest: "Reflective Vest",
+  "no-vest": "Missing Vest",
+  person: "Person",
+  gloves: "Gloves",
+  "no-gloves": "Missing Gloves",
+  boots: "Safety Boots",
+  "no-boots": "Missing Boots",
+  goggles: "Safety Goggles",
+  "no-goggles": "Missing Goggles",
+  "ear-mufs": "Ear Muffs",
+  "face-guard": "Face Guard",
+  "safety-suit": "Safety Suit",
+  tool: "Tool",
 };
 
 export type CameraStatus = "online" | "degraded" | "offline";

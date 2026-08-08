@@ -1,9 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Plus, X, ShieldAlert } from "lucide-react";
 
 import { AppShell, PageHeader } from "@/components/app-shell";
 import { PPE_LABELS, type PpeKey, type Zone } from "@/lib/mock-data";
+import { useSessionFetch, invalidateSessionCache } from "@/hooks/use-session-fetch";
 
 export const Route = createFileRoute("/zones")({
   head: () => ({
@@ -21,14 +22,34 @@ export const Route = createFileRoute("/zones")({
 
 const ppeKeys = Object.keys(PPE_LABELS) as PpeKey[];
 
+// Only these positive PPE items should be configurable as zone rules by the user
+const CONFIGURABLE_PPE: PpeKey[] = [
+  "helmet",
+  "vest",
+  "gloves",
+  "boots",
+  "goggles",
+  "ear-mufs",
+  "face-guard",
+  "safety-suit",
+];
+
 const defaultRequired: Record<PpeKey, boolean> = {
   helmet: true,
+  "no-helmet": false,
   vest: true,
-  boots: false,
-  safety_belt: false,
-  lanyard: false,
-  hook: false,
-  anchor_point: false,
+  "no-vest": false,
+  person: false,
+  gloves: false,
+  "no-gloves": false,
+  boots: true,
+  "no-boots": false,
+  goggles: false,
+  "no-goggles": false,
+  "ear-mufs": false,
+  "face-guard": false,
+  "safety-suit": false,
+  tool: false,
 };
 
 /** Convert a zone from the API into our local Zone type */
@@ -50,9 +71,21 @@ function apiZoneToLocal(apiZone: any): Zone {
 }
 
 function ZonesPage() {
-  const [config, setConfig] = useState<Zone[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const { data: apiData, loading, refetch: fetchZones } = useSessionFetch<any>("/api/zones", { zones: [], db_zones: [] });
+
+  // Compute config from apiData
+  const config = useMemo<Zone[]>(() => {
+    const dbZones = apiData.db_zones || [];
+    const ruleZones = apiData.zones || [];
+    if (dbZones.length > 0) return dbZones.map(apiZoneToLocal);
+    if (ruleZones.length > 0) return ruleZones.map(apiZoneToLocal);
+    return [];
+  }, [apiData]);
+
+  const setConfig = (updater: (c: Zone[]) => Zone[]) => {
+    // We update via backend, but this allows optimistic updates if needed
+  };
 
   // New Zone Form State
   const [newZoneName, setNewZoneName] = useState("");
@@ -61,24 +94,6 @@ function ZonesPage() {
   const [newFrameThreshold, setNewFrameThreshold] = useState(8);
   const [newDwellSeconds, setNewDwellSeconds] = useState(2);
   const [newConfidence, setNewConfidence] = useState(0.60);
-
-  useEffect(() => {
-    fetch("/api/zones")
-      .then((res) => (res.ok ? res.json() : { zones: [], db_zones: [] }))
-      .then((data) => {
-        // Prefer db_zones which have zone IDs; fall back to rule engine zones
-        const dbZones = data.db_zones || [];
-        const ruleZones = data.zones || [];
-
-        if (dbZones.length > 0) {
-          setConfig(dbZones.map(apiZoneToLocal));
-        } else if (ruleZones.length > 0) {
-          setConfig(ruleZones.map(apiZoneToLocal));
-        }
-      })
-      .catch((err) => console.error("Failed to fetch zones", err))
-      .finally(() => setLoading(false));
-  }, []);
 
   const update = (id: string, patch: Partial<Zone>) =>
     setConfig((c) => c.map((z) => (z.id === id ? { ...z, ...patch } : z)));
@@ -109,7 +124,12 @@ function ZonesPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(newZone),
-    }).catch((err) => console.error("Failed to sync new zone to backend", err));
+    })
+      .then(() => {
+        invalidateSessionCache("/api/zones");
+        fetchZones(true);
+      })
+      .catch((err) => console.error("Failed to sync new zone to backend", err));
   };
 
   return (
@@ -152,12 +172,12 @@ function ZonesPage() {
                     </p>
                   </div>
                   <span className="display-title rounded-sm bg-accent px-2 py-0.5 text-[10px] text-accent-foreground">
-                    {ppeKeys.filter((k) => z.required[k]).length} rules active
+                    {CONFIGURABLE_PPE.filter((k) => z.required[k]).length} rules active
                   </span>
                 </div>
 
                 <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                  {ppeKeys.map((k) => (
+                  {CONFIGURABLE_PPE.map((k) => (
                     <label
                       key={k}
                       className="flex cursor-pointer items-center justify-between gap-3 rounded border border-border bg-background/40 px-3 py-2"
@@ -271,7 +291,7 @@ function ZonesPage() {
               <div>
                 <label className="block text-xs text-muted-foreground mb-2">Required Safety Items</label>
                 <div className="grid grid-cols-2 gap-2">
-                  {ppeKeys.map((k) => (
+                  {CONFIGURABLE_PPE.map((k) => (
                     <label key={k} className="flex items-center gap-2 text-xs cursor-pointer">
                       <input
                         type="checkbox"

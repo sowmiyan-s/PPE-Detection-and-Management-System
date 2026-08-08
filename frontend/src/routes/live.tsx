@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { AlertTriangle, Camera, HardHat, ShieldCheck, Activity, Grid, Maximize2, Play, CheckCircle2, Radio } from "lucide-react";
 
 import { AppShell, PageHeader, StatusDot } from "@/components/app-shell";
+import { useSessionFetch } from "@/hooks/use-session-fetch";
 
 export const Route = createFileRoute("/live")({
   head: () => ({
@@ -44,32 +45,24 @@ function LivePage() {
   const [fps, setFps] = useState<number>(0);
   const [zone, setZone] = useState<string>("");
   const [wsStatus, setWsStatus] = useState<"offline" | "online" | "connecting">("connecting");
-  const [cameraList, setCameraList] = useState<CameraItem[]>([]);
+
   const [selectedCamId, setSelectedCamId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"grid" | "focus">("grid");
   const [filterMode, setFilterMode] = useState<"all" | "violations" | "compliant" | "has_helmet" | "has_vest">("all");
   const wsRef = useRef<WebSocket | null>(null);
 
-  const fetchCameras = () => {
-    fetch("/api/cameras")
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data) => {
-        if (Array.isArray(data)) {
-          setCameraList(data);
-          if (data.length > 0 && !selectedCamId) {
-            setSelectedCamId(data[0].id);
-          }
-        }
-      })
-      .catch((err) => console.error("Failed to load cameras", err));
-  };
+  const { data: cameraList, refetch: fetchCameras } = useSessionFetch<CameraItem[]>("/api/cameras", []);
+
+  // Set default selected camera once we have cameras
+  useEffect(() => {
+    if (cameraList.length > 0 && !selectedCamId) {
+      setSelectedCamId(cameraList[0].id);
+    }
+  }, [cameraList, selectedCamId]);
 
   useEffect(() => {
-    fetchCameras();
-    const interval = setInterval(fetchCameras, 5000);
     connectWs();
     return () => {
-      clearInterval(interval);
       if (wsRef.current) wsRef.current.close();
     };
   }, []);
@@ -226,7 +219,7 @@ function LivePage() {
                         </div>
                         <div>
                           <span className="text-muted-foreground block text-[10px]">Status</span>
-                          <StatusDot status={cam.status} label={cam.status} />
+                          <StatusDot status={cam.status} />
                         </div>
                       </div>
 

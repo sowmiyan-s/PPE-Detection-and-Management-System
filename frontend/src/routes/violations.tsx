@@ -4,6 +4,7 @@ import { Check, ShieldAlert, Image as ImageIcon, Trash2, Filter, History, AlertT
 
 import { AppShell, PageHeader } from "@/components/app-shell";
 import { PPE_LABELS, ppeLabel, formatTime, type ViolationEvent } from "@/lib/mock-data";
+import { useSessionFetch, invalidateSessionCache } from "@/hooks/use-session-fetch";
 
 export const Route = createFileRoute("/violations")({
   head: () => ({
@@ -24,7 +25,7 @@ type ExtendedViolationEvent = ViolationEvent & {
   videoPath?: string;
 };
 
-function Evidence({ imagePath, imageBase64, videoPath, missing }: { imagePath?: string; imageBase64?: string; videoPath?: string; missing: string[] }) {
+function Evidence({ imagePath, imageBase64, videoPath, missing }: { imagePath?: string | undefined; imageBase64?: string | undefined; videoPath?: string | undefined; missing: string[] }) {
   const imgSrc = imageBase64 || imagePath;
 
   if (videoPath) {
@@ -60,26 +61,9 @@ function Evidence({ imagePath, imageBase64, videoPath, missing }: { imagePath?: 
 }
 
 function ViolationsPage() {
-  const [violationList, setViolationList] = useState<ExtendedViolationEvent[]>([]);
+  const { data: violationList, loading, refetch: fetchViolations, mutate } = useSessionFetch<ExtendedViolationEvent[]>("/api/violations", []);
   const [acked, setAcked] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showHistory, setShowHistory] = useState(false);
-
-  const fetchViolations = () => {
-    fetch("/api/violations")
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data) => {
-        if (Array.isArray(data)) {
-          setViolationList(data);
-        }
-      })
-      .catch((err) => console.error("Failed to fetch violations", err))
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(() => {
-    fetchViolations();
-  }, []);
 
   const openViolations = violationList.filter((v) => !v.acknowledged && !acked.includes(v.id));
   const displayedViolations = showHistory ? violationList : openViolations;
@@ -87,22 +71,31 @@ function ViolationsPage() {
   const handleAcknowledge = (id: string) => {
     setAcked((prev) => [...prev, id]);
     fetch(`/api/violations/${id}/acknowledge`, { method: "POST" })
-      .then(() => fetchViolations())
+      .then(() => {
+        invalidateSessionCache("/api/violations");
+        fetchViolations(true);
+      })
       .catch((err) => console.error("Ack failed", err));
   };
 
   const handleDelete = (id: string) => {
-    setViolationList((prev) => prev.filter((v) => v.id !== id));
+    mutate(violationList.filter((v) => v.id !== id));
     fetch(`/api/violations/${id}`, { method: "DELETE" })
-      .then(() => fetchViolations())
+      .then(() => {
+        invalidateSessionCache("/api/violations");
+        fetchViolations(true);
+      })
       .catch((err) => console.error("Delete failed", err));
   };
 
   const handleClearAll = () => {
     if (confirm("Are you sure you want to delete all stored violation evidence records from MongoDB?")) {
-      setViolationList([]);
+      mutate([]);
       fetch("/api/violations", { method: "DELETE" })
-        .then(() => fetchViolations())
+        .then(() => {
+          invalidateSessionCache("/api/violations");
+          fetchViolations(true);
+        })
         .catch((err) => console.error("Clear all failed", err));
     }
   };

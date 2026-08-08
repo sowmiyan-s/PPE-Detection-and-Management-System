@@ -4,6 +4,7 @@ import { Plus, Trash2 } from "lucide-react";
 
 import { AppShell, PageHeader, StatusDot } from "@/components/app-shell";
 import { type Camera } from "@/lib/mock-data";
+import { useSessionFetch, invalidateSessionCache } from "@/hooks/use-session-fetch";
 
 export const Route = createFileRoute("/cameras")({
   head: () => ({
@@ -21,42 +22,29 @@ export const Route = createFileRoute("/cameras")({
 
 function CamerasPage() {
   const [showForm, setShowForm] = useState(false);
-  const [cameraList, setCameraList] = useState<Camera[]>([]);
-  const [zoneList, setZoneList] = useState<{ id: string; name: string }[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: cameraList, loading, refetch: fetchCameras } = useSessionFetch<Camera[]>("/api/cameras", []);
+  const { data: zoneData } = useSessionFetch<any>("/api/zones", { db_zones: [] });
+  const { data: physicalCams } = useSessionFetch<{ id: string; name: string }[]>("/api/devices/cameras", []);
+  
+  const zoneList = zoneData?.db_zones || [];
 
   // Form state
   const [cameraType, setCameraType] = useState("webcam");
-  const [physicalCams, setPhysicalCams] = useState<{ id: string; name: string }[]>([]);
   const [formName, setFormName] = useState("");
   const [formUrl, setFormUrl] = useState("0");
   const [formZone, setFormZone] = useState("");
   const [formFps, setFormFps] = useState("20");
 
   useEffect(() => {
-    Promise.allSettled([
-      fetch("/api/cameras").then((res) => (res.ok ? res.json() : [])),
-      fetch("/api/zones").then((res) => (res.ok ? res.json() : { db_zones: [] })),
-      fetch("/api/devices/cameras").then((res) => (res.ok ? res.json() : [])),
-    ]).then(([camerasRes, zonesRes, devRes]) => {
-      if (camerasRes.status === "fulfilled" && Array.isArray(camerasRes.value)) {
-        setCameraList(camerasRes.value);
-      }
-      if (zonesRes.status === "fulfilled") {
-        setZoneList(zonesRes.value.db_zones || []);
-      }
-      if (devRes.status === "fulfilled" && Array.isArray(devRes.value)) {
-        setPhysicalCams(devRes.value);
-        if (devRes.value.length > 0) setFormUrl(devRes.value[0].id);
-      }
-      setLoading(false);
-    });
-  }, []);
+    if (physicalCams.length > 0 && formUrl === "0") {
+      setFormUrl(physicalCams[0].id);
+    }
+  }, [physicalCams]);
 
   const handleTypeChange = (t: string) => {
     setCameraType(t);
     if (t === "webcam") {
-      setFormUrl(physicalCams.length > 0 ? physicalCams[0].id : "0");
+      setFormUrl(physicalCams.length > 0 ? (physicalCams[0]?.id || "0") : "0");
     } else {
       setFormUrl("");
     }
@@ -80,11 +68,8 @@ function CamerasPage() {
       body: JSON.stringify(newCam),
     })
       .then(() => {
-        // Refresh camera list
-        return fetch("/api/cameras").then((res) => (res.ok ? res.json() : []));
-      })
-      .then((data) => {
-        if (Array.isArray(data)) setCameraList(data);
+        invalidateSessionCache("/api/cameras");
+        fetchCameras(true);
       })
       .catch((err) => console.error("Failed to add camera", err));
 
@@ -96,16 +81,20 @@ function CamerasPage() {
 
   const handleActivate = (camId: string) => {
     fetch(`/api/cameras/${camId}/activate`, { method: "POST" })
-      .then(() => fetch("/api/cameras").then((res) => (res.ok ? res.json() : [])))
-      .then((data) => { if (Array.isArray(data)) setCameraList(data); })
+      .then(() => {
+        invalidateSessionCache("/api/cameras");
+        fetchCameras(true);
+      })
       .catch((err) => console.error("Failed to activate camera", err));
   };
 
   const handleDeleteCamera = (camId: string) => {
     if (confirm("Are you sure you want to delete this camera from the MongoDB cluster?")) {
       fetch(`/api/cameras/${camId}`, { method: "DELETE" })
-        .then(() => fetch("/api/cameras").then((res) => (res.ok ? res.json() : [])))
-        .then((data) => { if (Array.isArray(data)) setCameraList(data); })
+        .then(() => {
+          invalidateSessionCache("/api/cameras");
+          fetchCameras(true);
+        })
         .catch((err) => console.error("Failed to delete camera", err));
     }
   };
