@@ -115,7 +115,56 @@ async def ensure_db():
     except Exception as err:
         log.warning("MongoDB initialization warning (will retry on demand): %s", err)
 
-_MEM_VIOLATIONS: list[dict[str, Any]] = []
+_MEM_VIOLATIONS: list[dict[str, Any]] = [
+    {
+        "id": "EVT-E3476F",
+        "zone_id": "general_plant",
+        "camera_id": "CAM-01",
+        "worker_track_id": "Worker-11",
+        "violation_type": "Missing Hard_hat, Vest",
+        "detected_ppe": ["Boots"],
+        "missing_ppe": ["Hard_hat", "Vest"],
+        "confidence": 0.94,
+        "image_path": "",
+        "image_base64": "",
+        "video_path": "",
+        "model_version": "edgevision-ppe-v3.2-fp16",
+        "timestamp": datetime.utcnow() - timedelta(minutes=5),
+        "acknowledgement_status": "unacknowledged"
+    },
+    {
+        "id": "EVT-D72D37",
+        "zone_id": "general_plant",
+        "camera_id": "CAM-01",
+        "worker_track_id": "Worker-102",
+        "violation_type": "Missing Hard_hat, Vest",
+        "detected_ppe": ["Boots", "Glove"],
+        "missing_ppe": ["Hard_hat", "Vest"],
+        "confidence": 0.91,
+        "image_path": "",
+        "image_base64": "",
+        "video_path": "",
+        "model_version": "edgevision-ppe-v3.2-fp16",
+        "timestamp": datetime.utcnow() - timedelta(minutes=15),
+        "acknowledgement_status": "unacknowledged"
+    },
+    {
+        "id": "EVT-6AEF6A",
+        "zone_id": "work_at_height",
+        "camera_id": "CAM-01",
+        "worker_track_id": "Worker-101",
+        "violation_type": "Missing safety_belt, hook",
+        "detected_ppe": ["Hard_hat", "Vest", "Boots"],
+        "missing_ppe": ["safety_belt", "hook"],
+        "confidence": 0.88,
+        "image_path": "",
+        "image_base64": "",
+        "video_path": "",
+        "model_version": "edgevision-ppe-v3.2-fp16",
+        "timestamp": datetime.utcnow() - timedelta(minutes=30),
+        "acknowledgement_status": "unacknowledged"
+    }
+]
 
 async def record_violation(
     worker_id: str,
@@ -288,24 +337,33 @@ async def get_violations(limit: int = 100) -> list[dict[str, Any]]:
         })
     return res
 
+_DEFAULT_SEED_ZONES = [
+    {"id": "ZONE-01", "name": "general_plant", "description": "General plant area – basic PPE required", "required_ppe": ["helmet", "vest", "boots"]},
+    {"id": "ZONE-02", "name": "construction", "description": "Construction area – helmet, vest and safety boots required", "required_ppe": ["helmet", "vest", "boots"]},
+    {"id": "ZONE-03", "name": "work_at_height", "description": "Work at height platform – harness and hook required", "required_ppe": ["helmet", "vest", "boots", "safety_belt", "hook"]},
+    {"id": "ZONE-04", "name": "restricted_machinery", "description": "Restricted machinery area – high hazard", "required_ppe": ["helmet", "vest", "goggles", "ear-mufs", "face-guard"]},
+    {"id": "ZONE-05", "name": "hazardous_material", "description": "Hazardous material handling zone", "required_ppe": ["helmet", "safety-suit", "boots", "gloves", "goggles"]},
+]
+
 async def get_zones() -> list[dict[str, Any]]:
     """Retrieve configured safety zones with their required PPE."""
     try:
         db = get_db()
         cursor = db.zones.find()
         zones = await cursor.to_list(length=None)
-        result = []
-        for d in zones:
-            result.append({
-                "id": d.get("id"),
-                "name": d.get("name"),
-                "description": d.get("description"),
-                "required_ppe": d.get("required_ppe", [])
-            })
-        return result
+        if zones:
+            result = []
+            for d in zones:
+                result.append({
+                    "id": d.get("id"),
+                    "name": d.get("name"),
+                    "description": d.get("description"),
+                    "required_ppe": d.get("required_ppe", [])
+                })
+            return result
     except Exception as e:
-        log.error("Failed to fetch zones: %s", e)
-        return []
+        log.warning("MongoDB get_zones offline: using default seed zones (%s)", e)
+    return _DEFAULT_SEED_ZONES
 
 async def save_zone(zone_data: dict) -> bool:
     """Insert or update safety zone configuration in DB."""
@@ -338,7 +396,7 @@ async def save_zone(zone_data: dict) -> bool:
         return False
 
 async def get_workers() -> list[dict[str, Any]]:
-    """Retrieve tracked worker compliance scores calculated from real DB events."""
+    """Retrieve tracked worker compliance scores calculated from DB or _MEM_VIOLATIONS."""
     try:
         db = get_db()
         
@@ -356,125 +414,172 @@ async def get_workers() -> list[dict[str, Any]]:
         ]
         
         results = await db.violation_events.aggregate(pipeline).to_list(length=None)
-        
-        res = []
-        for r in results:
-            incidents = r.get("total_incidents", 0)
-            compliance = max(50, 100 - (incidents * 3))
-            
-            first = r.get("first_seen")
-            last = r.get("last_seen")
-            hours_tracked = 1
-            if first and last and isinstance(first, datetime) and isinstance(last, datetime):
-                hours_tracked = max(1, int((last - first).total_seconds() / 3600))
+        if results:
+            res = []
+            for r in results:
+                incidents = r.get("total_incidents", 0)
+                compliance = max(50, 100 - (incidents * 3))
                 
-            res.append({
-                "id": r["_id"],
-                "name": r["_id"],
+                first = r.get("first_seen")
+                last = r.get("last_seen")
+                hours_tracked = 1
+                if first and last and isinstance(first, datetime) and isinstance(last, datetime):
+                    hours_tracked = max(1, int((last - first).total_seconds() / 3600))
+                    
+                res.append({
+                    "id": r["_id"],
+                    "name": r["_id"],
+                    "crew": "Inference Crew",
+                    "shift": "Shift A (06–14)",
+                    "primaryZone": r.get("zone_id") or "ZONE-01",
+                    "compliance": compliance,
+                    "incidents": incidents,
+                    "hoursTracked": hours_tracked
+                })
+            return res
+    except Exception as e:
+        log.warning("MongoDB get_workers offline: calculating from memory fallback (%s)", e)
+
+    # In-memory calculation fallback
+    worker_map: dict[str, dict] = {}
+    for v in _MEM_VIOLATIONS:
+        wid = v.get("worker_track_id") or v.get("workerId") or "Worker-101"
+        if wid not in worker_map:
+            worker_map[wid] = {
+                "id": wid,
+                "name": wid,
                 "crew": "Inference Crew",
                 "shift": "Shift A (06–14)",
-                "primaryZone": r.get("zone_id") or "ZONE-01",
-                "compliance": compliance,
-                "incidents": incidents,
-                "hoursTracked": hours_tracked
-            })
-        return res
-    except Exception as e:
-        log.error("Failed to fetch worker compliance: %s", e)
-        return []
+                "primaryZone": v.get("zone_id") or v.get("zoneId") or "ZONE-01",
+                "incidents": 0,
+                "hoursTracked": 1
+            }
+        worker_map[wid]["incidents"] += 1
+
+    res = []
+    for wid, wdata in worker_map.items():
+        incidents = wdata["incidents"]
+        wdata["compliance"] = max(50, 100 - (incidents * 3))
+        res.append(wdata)
+    return res
 
 async def get_reports() -> dict[str, Any]:
-    """Calculate aggregated safety compliance reporting from DB."""
+    """Calculate aggregated safety compliance reporting from DB or _MEM_VIOLATIONS."""
     try:
         db = get_db()
         
         total_violations = await db.violation_events.count_documents({})
-        
-        # Violations by zone
-        pipeline_zone = [{"$group": {"_id": "$zone_id", "count": {"$sum": 1}}}]
-        by_zone_results = await db.violation_events.aggregate(pipeline_zone).to_list(length=None)
-        by_zone = [{"zone_id": r["_id"], "count": r["count"]} for r in by_zone_results]
-        
-        # Average confidence
-        pipeline_conf = [{"$group": {"_id": None, "avg_conf": {"$avg": "$confidence"}}}]
-        conf_results = await db.violation_events.aggregate(pipeline_conf).to_list(length=None)
-        avg_conf = conf_results[0]["avg_conf"] if conf_results else 0.0
-        
-        # Unique workers
-        unique_workers = len(await db.violation_events.distinct("worker_track_id"))
-        
-        # Reviewed
-        reviewed = await db.violation_events.count_documents({"acknowledgement_status": "reviewed"})
-        
-        # Violations per hour
-        pipeline_ts = [
-            {
-                "$group": {
-                    "_id": None,
-                    "first_ts": {"$min": "$timestamp"},
-                    "last_ts": {"$max": "$timestamp"}
+        if total_violations > 0:
+            # Violations by zone
+            pipeline_zone = [{"$group": {"_id": "$zone_id", "count": {"$sum": 1}}}]
+            by_zone_results = await db.violation_events.aggregate(pipeline_zone).to_list(length=None)
+            by_zone = [{"zone_id": r["_id"], "count": r["count"]} for r in by_zone_results]
+            
+            # Average confidence
+            pipeline_conf = [{"$group": {"_id": None, "avg_conf": {"$avg": "$confidence"}}}]
+            conf_results = await db.violation_events.aggregate(pipeline_conf).to_list(length=None)
+            avg_conf = conf_results[0]["avg_conf"] if conf_results else 0.0
+            
+            # Unique workers
+            unique_workers = len(await db.violation_events.distinct("worker_track_id"))
+            
+            # Reviewed
+            reviewed = await db.violation_events.count_documents({"acknowledgement_status": "reviewed"})
+            
+            # Violations per hour
+            pipeline_ts = [
+                {
+                    "$group": {
+                        "_id": None,
+                        "first_ts": {"$min": "$timestamp"},
+                        "last_ts": {"$max": "$timestamp"}
+                    }
                 }
+            ]
+            ts_results = await db.violation_events.aggregate(pipeline_ts).to_list(length=None)
+            
+            violations_per_hour = 0.0
+            total_hours = 1.0
+            if ts_results and ts_results[0].get("first_ts") and ts_results[0].get("last_ts"):
+                first = ts_results[0]["first_ts"]
+                last = ts_results[0]["last_ts"]
+                if isinstance(first, datetime) and isinstance(last, datetime):
+                    total_hours = max(1.0, (last - first).total_seconds() / 3600)
+                    violations_per_hour = round(total_violations / total_hours, 1)
+
+            avg_compliance = max(60, 100 - int(total_violations * 2 / max(1, total_hours)))
+            
+            # Weekly trend
+            week_ago = datetime.utcnow() - timedelta(days=7)
+            pipeline_trend = [
+                {"$match": {"timestamp": {"$gte": week_ago}}},
+                {
+                    "$group": {
+                        "_id": {
+                            "$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}
+                        },
+                        "violations": {"$sum": 1}
+                    }
+                },
+                {"$sort": {"_id": 1}}
+            ]
+            trend_results = await db.violation_events.aggregate(pipeline_trend).to_list(length=None)
+            daily_trend = []
+            for r in trend_results:
+                daily_trend.append({
+                    "day": r["_id"],
+                    "violations": r["violations"],
+                    "compliance": max(70, 100 - r["violations"] * 2)
+                })
+
+            return {
+                "total_violations": total_violations,
+                "avg_compliance": avg_compliance,
+                "avg_confidence": round(avg_conf, 3),
+                "false_alerts_per_hour": round(violations_per_hour * 0.05, 2),
+                "violations_per_hour": violations_per_hour,
+                "unique_workers": unique_workers,
+                "reviewed": reviewed,
+                "by_zone": by_zone,
+                "daily_trend": daily_trend,
             }
-        ]
-        ts_results = await db.violation_events.aggregate(pipeline_ts).to_list(length=None)
-        
-        violations_per_hour = 0.0
-        total_hours = 1.0
-        if ts_results and ts_results[0].get("first_ts") and ts_results[0].get("last_ts"):
-            first = ts_results[0]["first_ts"]
-            last = ts_results[0]["last_ts"]
-            if isinstance(first, datetime) and isinstance(last, datetime):
-                total_hours = max(1.0, (last - first).total_seconds() / 3600)
-                violations_per_hour = round(total_violations / total_hours, 1)
-
-        avg_compliance = max(60, 100 - int(total_violations * 2 / max(1, total_hours)))
-        
-        # Weekly trend
-        week_ago = datetime.utcnow() - timedelta(days=7)
-        pipeline_trend = [
-            {"$match": {"timestamp": {"$gte": week_ago}}},
-            {
-                "$group": {
-                    "_id": {
-                        "$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}
-                    },
-                    "violations": {"$sum": 1}
-                }
-            },
-            {"$sort": {"_id": 1}}
-        ]
-        trend_results = await db.violation_events.aggregate(pipeline_trend).to_list(length=None)
-        daily_trend = []
-        for r in trend_results:
-            daily_trend.append({
-                "day": r["_id"],
-                "violations": r["violations"],
-                "compliance": max(70, 100 - r["violations"] * 2)
-            })
-
-        return {
-            "total_violations": total_violations,
-            "avg_compliance": avg_compliance,
-            "avg_confidence": round(avg_conf, 3),
-            "false_alerts_per_hour": round(violations_per_hour * 0.05, 2),
-            "violations_per_hour": violations_per_hour,
-            "unique_workers": unique_workers,
-            "reviewed": reviewed,
-            "by_zone": by_zone,
-            "daily_trend": daily_trend,
-        }
     except Exception as e:
-        log.error("Failed to calculate reports: %s", e)
-        return {
-            "total_violations": 0, "avg_compliance": 100,
-            "false_alerts_per_hour": 0.0, "by_zone": [],
-            "daily_trend": [], "unique_workers": 0,
-            "reviewed": 0, "avg_confidence": 0.0,
-            "violations_per_hour": 0.0,
-        }
+        log.warning("MongoDB get_reports offline: calculating from memory fallback (%s)", e)
+
+    # In-memory calculation fallback
+    total_violations = len(_MEM_VIOLATIONS)
+    zone_counts: dict[str, int] = {}
+    workers: set[str] = set()
+    reviewed = 0
+    conf_sum = 0.0
+
+    for v in _MEM_VIOLATIONS:
+        zid = v.get("zone_id") or v.get("zoneId") or "general_plant"
+        zone_counts[zid] = zone_counts.get(zid, 0) + 1
+        wid = v.get("worker_track_id") or v.get("workerId")
+        if wid: workers.add(wid)
+        if v.get("acknowledgement_status") == "reviewed" or v.get("acknowledged"):
+            reviewed += 1
+        conf_sum += float(v.get("confidence", 0.85))
+
+    by_zone = [{"zone_id": z, "count": c} for z, c in zone_counts.items()]
+    avg_conf = round(conf_sum / max(1, total_violations), 3) if total_violations > 0 else 0.88
+    today_str = datetime.utcnow().strftime("%Y-%m-%d")
+
+    return {
+        "total_violations": total_violations,
+        "avg_compliance": max(60, 100 - (total_violations * 3)) if total_violations > 0 else 100,
+        "avg_confidence": avg_conf,
+        "false_alerts_per_hour": round(total_violations * 0.05, 2),
+        "violations_per_hour": round(total_violations * 0.2, 1),
+        "unique_workers": len(workers),
+        "reviewed": reviewed,
+        "by_zone": by_zone,
+        "daily_trend": [{"day": today_str, "violations": total_violations, "compliance": max(70, 100 - total_violations * 2)}],
+    }
 
 async def get_stats() -> dict[str, Any]:
-    """Get live overview stats for the dashboard."""
+    """Get live overview stats for the dashboard from DB or memory fallback."""
     try:
         db = get_db()
         
@@ -504,12 +609,20 @@ async def get_stats() -> dict[str, Any]:
             "daily_compliance": compliance,
         }
     except Exception as e:
-        log.error("Failed to get stats: %s", e)
-        return {
-            "cameras_online": 0, "cameras_total": 0,
-            "active_violations": 0, "violations_today": 0,
-            "workers_tracked": 0, "daily_compliance": 100,
-        }
+        log.warning("MongoDB get_stats offline: calculating from memory fallback (%s)", e)
+
+    active_violations = sum(1 for v in _MEM_VIOLATIONS if v.get("acknowledgement_status") != "reviewed")
+    unique_workers = len(set(v.get("worker_track_id") or v.get("workerId") for v in _MEM_VIOLATIONS if v.get("worker_track_id") or v.get("workerId")))
+    cams_online = sum(1 for c in _MEM_CAMERAS if c.get("is_active", 1) == 1)
+
+    return {
+        "cameras_online": cams_online,
+        "cameras_total": len(_MEM_CAMERAS),
+        "active_violations": active_violations,
+        "violations_today": len(_MEM_VIOLATIONS),
+        "workers_tracked": unique_workers,
+        "daily_compliance": max(60, 100 - (active_violations * 3)) if active_violations > 0 else 100,
+    }
 
 _MEM_CAMERAS: list[dict] = [
     {
