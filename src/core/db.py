@@ -35,16 +35,13 @@ def get_db():
     global _client, _db
     if _db is None:
         try:
-            import certifi
-            _client = AsyncIOMotorClient(
-                config.MONGODB_URI,
-                serverSelectionTimeoutMS=5000,
-                connectTimeoutMS=5000,
-                socketTimeoutMS=5000,
-                tls=True,
-                tlsCAFile=certifi.where(),
-                tlsAllowInvalidCertificates=True,
-            )
+            kwargs = {
+                "serverSelectionTimeoutMS": 3000,
+                "connectTimeoutMS": 3000,
+                "socketTimeoutMS": 3000,
+                "tlsAllowInvalidCertificates": True,
+            }
+            _client = AsyncIOMotorClient(config.MONGODB_URI, **kwargs)
             _db = _client[config.MONGODB_DB_NAME]
             log.info(f"Connected to MongoDB at {config.MONGODB_URI}")
         except Exception as e:
