@@ -81,6 +81,7 @@ async def ensure_db():
                     "resolution": "1280x720",
                     "fps": 20,
                     "is_active": 1,
+                    "type": "webcam",
                     "streamUrl": "0"
                 }
             ]
@@ -670,19 +671,12 @@ async def get_stats() -> dict[str, Any]:
 _MEM_CAMERAS: list[dict] = [
     {
         "id": "CAM-01",
-        "name": "EdgeVision Primary Camera",
+        "name": "Local Webcam",
         "source": "0",
-        "location": "Plant Floor Area",
+        "streamUrl": "0",
+        "type": "webcam",
+        "location": "Plant Area",
         "is_active": 1,
-        "zone_id": "general_plant",
-        "target_fps": 20
-    },
-    {
-        "id": "CAM-02",
-        "name": "EdgeVision RTSP Camera Feed",
-        "source": "rtsp://localhost:8554/cam",
-        "location": "Plant Entrance (RTSP Stream)",
-        "is_active": 0,
         "zone_id": "general_plant",
         "target_fps": 20
     }
