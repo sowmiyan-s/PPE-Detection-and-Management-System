@@ -39,20 +39,7 @@ function Evidence({
   onOpenPreview?: () => void;
 }) {
   const imgSrc = imageBase64 || imagePath;
-
-  if (videoPath) {
-    return (
-      <div
-        onClick={onOpenPreview}
-        className="relative aspect-video w-48 shrink-0 overflow-hidden rounded border border-destructive/50 bg-black shadow-inner cursor-pointer group"
-      >
-        <video src={videoPath} controls className="size-full object-cover" />
-        <span className="telemetry absolute top-1 left-1 rounded-sm bg-primary/90 px-1 py-0.5 text-[9px] text-primary-foreground font-mono font-bold tracking-wider">
-          MP4 CLIP
-        </span>
-      </div>
-    );
-  }
+  const [videoError, setVideoError] = useState(false);
 
   if (imgSrc) {
     return (
@@ -60,13 +47,46 @@ function Evidence({
         onClick={onOpenPreview}
         className="relative aspect-video w-48 shrink-0 overflow-hidden rounded border border-destructive/50 bg-black shadow-inner cursor-pointer group"
       >
-        <img src={imgSrc} alt="Real Evidence Snapshot" className="size-full object-cover transition-transform group-hover:scale-105" />
+        <img
+          src={imgSrc}
+          alt="Proof Evidence Snapshot"
+          className="size-full object-cover transition-transform group-hover:scale-105"
+        />
+        {videoPath && !videoError && (
+          <video
+            src={videoPath}
+            poster={imgSrc}
+            preload="metadata"
+            onError={() => setVideoError(true)}
+            className="size-full object-cover absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity"
+          />
+        )}
         <span className="telemetry absolute bottom-1 left-1 rounded-sm bg-destructive/90 px-1 py-0.5 text-[9px] text-destructive-foreground font-mono font-bold tracking-wider">
-          PROOF EVIDENCE
+          {videoPath && !videoError ? "PROOF + CLIP" : "PROOF EVIDENCE"}
         </span>
         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
           <Eye className="size-5" />
         </div>
+      </div>
+    );
+  }
+
+  if (videoPath && !videoError) {
+    return (
+      <div
+        onClick={onOpenPreview}
+        className="relative aspect-video w-48 shrink-0 overflow-hidden rounded border border-destructive/50 bg-black shadow-inner cursor-pointer group"
+      >
+        <video
+          src={videoPath}
+          controls
+          preload="metadata"
+          onError={() => setVideoError(true)}
+          className="size-full object-cover"
+        />
+        <span className="telemetry absolute top-1 left-1 rounded-sm bg-primary/90 px-1 py-0.5 text-[9px] text-primary-foreground font-mono font-bold tracking-wider">
+          MP4 CLIP
+        </span>
       </div>
     );
   }
@@ -90,7 +110,7 @@ function ViolationsPage() {
 
   const [acked, setAcked] = useState<string[]>([]);
   const [showHistory, setShowHistory] = useState(false);
-  const [previewMedia, setPreviewMedia] = useState<{ src: string; isVideo: boolean; title: string } | null>(null);
+  const [previewMedia, setPreviewMedia] = useState<{ src: string; imgSrc?: string; isVideo: boolean; title: string } | null>(null);
 
   const openViolations = violationList.filter((v) => !v.acknowledged && !acked.includes(v.id));
   const displayedViolations = showHistory ? violationList : openViolations;
@@ -180,10 +200,16 @@ function ViolationsPage() {
               </button>
             </div>
             <div className="relative aspect-video bg-black flex items-center justify-center rounded overflow-hidden">
-              {previewMedia.isVideo ? (
-                <video src={previewMedia.src} controls autoPlay className="size-full object-contain" />
+              {previewMedia.isVideo && previewMedia.src ? (
+                <video
+                  src={previewMedia.src}
+                  poster={previewMedia.imgSrc}
+                  controls
+                  autoPlay
+                  className="size-full object-contain"
+                />
               ) : (
-                <img src={previewMedia.src} alt="Evidence Large" className="size-full object-contain" />
+                <img src={previewMedia.src} alt="Evidence Large Snapshot" className="size-full object-contain" />
               )}
             </div>
           </div>
@@ -225,11 +251,12 @@ function ViolationsPage() {
                     videoPath={v.videoPath}
                     missing={v.missing}
                     onOpenPreview={() => {
-                      if (v.videoPath) {
-                        setPreviewMedia({ src: v.videoPath, isVideo: true, title: `Evidence Video — ${v.id}` });
-                      } else if (imgSrc) {
-                        setPreviewMedia({ src: imgSrc, isVideo: false, title: `Evidence Snapshot — ${v.id}` });
-                      }
+                      setPreviewMedia({
+                        src: imgSrc || v.videoPath || "",
+                        imgSrc: imgSrc || "",
+                        isVideo: !imgSrc && Boolean(v.videoPath),
+                        title: `Proof Evidence Review — ${v.id}`,
+                      });
                     }}
                   />
 

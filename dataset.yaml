@@ -1,52 +1,24 @@
-# EdgeVision PPE Dataset Configuration
-# Compatible with YOLOv8 / Ultralytics training pipeline
-# Paths are relative to this file (project root)
-
-path: datasets/ppe_dataset    # dataset root directory
-train: images/train           # training images   (relative to path)
-val:   images/val             # validation images (relative to path)
-test:  images/test            # test images       (relative to path, optional)
-
-# Number of classes
-nc: 19
-
-# Class names (must match the order used during labelling)
+path: c:/Users/Asus/Downloads/DATASET/ppe_yolo_dataset
+train: train/images
+val: val/images
+test: test/images
+nc: 18
 names:
-  0: Boots
-  1: Ear-Protection
-  2: Glass
-  3: Glove
-  4: Hard_hat
-  5: Mask
-  6: No-Boots
-  7: No-Ear-Protection
-  8: No-Glass
-  9: No-Glove
-  10: No-Helmet
-  11: No-Mask
-  12: No-Vest
-  13: Worker
-  14: Vest
-  15: Circular_Saw
-  16: Fire_Extinguisher
-  17: Fire_prevention_Net
-  18: Welding_Equipment
-
-
-# ── Notes ──────────────────────────────────────────────────────────────────────
-# Expected directory layout:
-#
-#   datasets/ppe_dataset/
-#   ├── images/
-#   │   ├── train/     *.jpg / *.png
-#   │   ├── val/
-#   │   └── test/
-#   └── labels/
-#       ├── train/     *.txt  (YOLO format: cls cx cy w h, normalised)
-#       ├── val/
-#       └── test/
-#
-# Label format per line:  <class_id> <cx> <cy> <width> <height>
-#   All values normalised to [0, 1] relative to image dimensions.
-#
-# See docs/dataset_guide.md for the full labelling guide.
+  0: person
+  1: helmet
+  2: vest
+  3: boots
+  4: lanyard
+  5: no_harness
+  6: no_lanyard
+  7: lanyard_good
+  8: lanyard_bad
+  9: glove
+  10: glass
+  11: ear_protection
+  12: mask
+  13: no_helmet
+  14: no_vest
+  15: no_boots
+  16: no_glove
+  17: no_glass

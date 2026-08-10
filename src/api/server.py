@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from contextlib import asynccontextmanager
 
 import cv2
@@ -33,6 +34,7 @@ from fastapi.staticfiles import StaticFiles
 from src.core import config
 from src.core.vision_pipeline import VisionPipeline
 from src.core import db
+from src.core.cache import mongo_cache
 from src.api.models import ZoneCreate, CameraCreate
 
 log = logging.getLogger(__name__)
@@ -49,33 +51,48 @@ _fps_stats: dict = {"fps": 0.0, "frame_count": 0, "start_time": time.time()}
 # ── WebSocket connection manager ───────────────────────────────────────────────
 
 def open_camera_source(source: str) -> cv2.VideoCapture:
-    """Helper to open webcam indices, RTSP URLs, or extract YouTube streams."""
-    if str(source).isdigit():
-        idx = int(source)
+    """Helper to open webcam indices, RTSP URLs, HTTP video feeds, or YouTube streams with RTSP TCP transport & retry logic."""
+    src_str = str(source).strip()
+    if src_str.isdigit():
+        idx = int(src_str)
         # On Windows, try DirectShow (CAP_DSHOW) first, then fall back to default backend
         cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
         if not cap.isOpened():
             cap = cv2.VideoCapture(idx)
         return cap
     
-    if "youtube.com" in source or "youtu.be" in source:
+    if "youtube.com" in src_str or "youtu.be" in src_str:
         try:
             from cap_from_youtube import cap_from_youtube
-            return cap_from_youtube(source, "720p")
+            return cap_from_youtube(src_str, "720p")
         except Exception:
             pass
         try:
             import yt_dlp
             ydl_opts = {"format": "best[ext=mp4]", "quiet": True}
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(source, download=False)
-                url = info.get("url", source)
+                info = ydl.extract_info(src_str, download=False)
+                url = info.get("url", src_str)
             return cv2.VideoCapture(url)
         except Exception as e:
             log.warning("Failed to extract youtube stream: %s", e)
     
-    # Direct RTSP/HTTP or other valid string sources
-    return cv2.VideoCapture(source)
+    # Configure OpenCV FFmpeg to use RTSP over TCP (avoids UDP packet drop timeouts)
+    if src_str.lower().startswith(("rtsp://", "rtsps://", "http://", "https://")):
+        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|timeout;5000000"
+        for attempt in range(3):
+            try:
+                cap = cv2.VideoCapture(src_str, cv2.CAP_FFMPEG)
+                if cap.isOpened():
+                    log.info("Successfully opened RTSP/network camera stream (attempt %d): %s", attempt + 1, src_str)
+                    return cap
+            except Exception as err:
+                log.warning("FFmpeg RTSP attempt %d error for %s: %s", attempt + 1, src_str, err)
+            time.sleep(0.2)
+
+    # General fallback for video files or other string sources
+    cap = cv2.VideoCapture(src_str)
+    return cap
 
 
 class ConnectionManager:
@@ -167,13 +184,14 @@ app.mount("/api/evidence", StaticFiles(directory=EVIDENCE_DIR), name="evidence")
 from collections import deque
 
 _active_source = "0"
-frame_buffer: deque = deque(maxlen=60)
+frame_buffer: deque = deque(maxlen=15)
 _worker_violation_cooldown: dict[str, float] = {}  # worker_id -> last DB write timestamp
+_scene_violation_cooldown: dict[str, float] = {}   # zone:missing_ppe -> last write timestamp
 
 # ── Evidence saving helper ─────────────────────────────────────────────────────
 
 async def _save_and_record(w_data, ann_img, f_buf_copy, z_id, cam_id, ts, b64):
-    """Save evidence image/video and record violation to database."""
+    """Save evidence image/video and record violation to database asynchronously."""
     def _do_write():
         ts_int = int(ts)
         filename = f"EVT-{ts_int}-{w_data['worker_id']}.jpg"
@@ -182,21 +200,27 @@ async def _save_and_record(w_data, ann_img, f_buf_copy, z_id, cam_id, ts, b64):
         vid_filepath = os.path.join(EVIDENCE_DIR, vid_filename)
         cv2.imwrite(filepath, ann_img)
         
+        saved_vid = False
         try:
             h, w_dim, _ = ann_img.shape
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out_vid = cv2.VideoWriter(vid_filepath, fourcc, 15.0, (w_dim, h))
-            if out_vid.isOpened():
-                for f_b in f_buf_copy:
-                    if f_b is not None and f_b.shape[:2] == (h, w_dim):
-                        out_vid.write(f_b)
-                out_vid.release()
-                return f"/api/evidence/{filename}", f"/api/evidence/{vid_filename}"
-            else:
-                return f"/api/evidence/{filename}", ""
+            for codec in ['avc1', 'H264', 'mp4v', 'MJPG']:
+                try:
+                    fourcc = cv2.VideoWriter_fourcc(*codec)
+                    out_vid = cv2.VideoWriter(vid_filepath, fourcc, 15.0, (w_dim, h))
+                    if out_vid.isOpened():
+                        for f_b in f_buf_copy:
+                            if f_b is not None and f_b.shape[:2] == (h, w_dim):
+                                out_vid.write(f_b)
+                        out_vid.release()
+                        saved_vid = True
+                        break
+                except Exception:
+                    continue
         except Exception as vid_err:
             log.warning("Video write failed: %s", vid_err)
-            return f"/api/evidence/{filename}", ""
+
+        vid_url = f"/api/evidence/{vid_filename}" if saved_vid else ""
+        return f"/api/evidence/{filename}", vid_url
 
     img_url, vid_url = await asyncio.get_event_loop().run_in_executor(None, _do_write)
     
@@ -264,17 +288,17 @@ async def vision_loop() -> None:
             _fps_stats["start_time"] = time.time()
             _fps_stats["frame_count"] = 0
 
-        ok_enc, buf = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 65])
+        ok_enc, buf = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 60])
         if not ok_enc:
             await asyncio.sleep(frame_interval)
             continue
 
         img_b64 = base64.b64encode(buf.tobytes()).decode("ascii")
 
-        frame_buffer.append(annotated.copy())
+        frame_buffer.append(annotated)
 
-        # Save proof of evidence when worker is non-compliant and missing PPE (or is_new_alert is True)
-        # Per-worker cooldown prevents duplicate DB entries
+        # Save proof of evidence when worker is non-compliant
+        # Per-worker + Scene-level cooldown prevents duplicate DB entries
         now = time.time()
         violation_workers = [
             w for w in workers
@@ -282,10 +306,17 @@ async def vision_loop() -> None:
         ]
         for w in violation_workers:
             wid = w["worker_id"]
-            last_write = _worker_violation_cooldown.get(wid, 0.0)
-            if now - last_write < config.VIOLATION_COOLDOWN_SECS:
-                continue  # skip — same worker was recorded within cooldown period
+            scene_key = f"{_active_zone}:{','.join(sorted(w.get('missing_ppe', [])))}"
+            
+            last_worker_write = _worker_violation_cooldown.get(wid, 0.0)
+            last_scene_write = _scene_violation_cooldown.get(scene_key, 0.0)
+
+            if (now - last_worker_write < config.VIOLATION_COOLDOWN_SECS) or (now - last_scene_write < 10.0):
+                continue  # skip — duplicate event within cooldown period
+
             _worker_violation_cooldown[wid] = now
+            _scene_violation_cooldown[scene_key] = now
+
             asyncio.create_task(
                 _save_and_record(w, annotated.copy(), list(frame_buffer), _active_zone, _active_camera_id, now, img_b64)
             )
@@ -353,8 +384,29 @@ async def set_zone(body: ZoneCreate):
     return JSONResponse({"success": True, "active": _active_zone, "required_ppe": list(norm_required)})
 
 @app.get("/api/violations")
-async def get_violations_api():
-    return JSONResponse(await db.get_violations())
+async def get_violations_api(
+    cameras: str = "all",
+    date_range: str = "all",
+    start_date: str | None = None,
+    end_date: str | None = None,
+    zone_id: str = "all",
+    worker_id: str = "all",
+    status: str = "all",
+    limit: int = 1000
+):
+    """Query violation records supporting multi-constraint filtering."""
+    camera_list = [c.strip() for c in cameras.split(",") if c.strip()] if cameras != "all" else ["all"]
+    violations = await db.get_filtered_violations(
+        camera_ids=camera_list,
+        date_range=date_range,
+        start_date=start_date,
+        end_date=end_date,
+        zone_id=zone_id,
+        worker_id=worker_id,
+        status=status,
+        limit=limit
+    )
+    return JSONResponse(violations)
 
 @app.post("/api/violations/{evt_id}/acknowledge")
 @app.patch("/api/violations/{evt_id}/acknowledge")
@@ -394,6 +446,18 @@ async def get_stats_api():
     stats["ws_connections"] = len(manager.active)
     return JSONResponse(stats)
 
+@app.get("/api/cache/stats")
+async def get_cache_stats_api():
+    """Return MongoDB in-memory query cache metrics."""
+    metrics = await mongo_cache.get_metrics()
+    return JSONResponse(metrics)
+
+@app.post("/api/cache/clear")
+async def clear_cache_api():
+    """Manually purge all cached MongoDB queries."""
+    await mongo_cache.clear()
+    return JSONResponse({"success": True, "message": "MongoDB query cache cleared."})
+
 @app.get("/api/cameras")
 async def get_cameras_api():
     """Return cameras from DB, enriched with live pipeline status."""
@@ -432,14 +496,24 @@ async def list_physical_cameras():
 
 @app.post("/api/cameras")
 async def add_camera_api(body: CameraCreate):
-    """Register a new camera in the database."""
-    ok = await db.save_camera(body.model_dump(exclude_none=True))
-    return JSONResponse({"success": ok})
+    """Register a new camera in the database and auto-activate it for live AI worker detection."""
+    cam_dict = body.model_dump(exclude_none=True)
+    cam_id = cam_dict.get("id") or f"CAM-{uuid.uuid4().hex[:4].upper()}"
+    cam_dict["id"] = cam_id
+    ok = await db.save_camera(cam_dict)
+    
+    # Automatically switch live vision pipeline feed to newly added camera
+    try:
+        await activate_camera_api(cam_id)
+    except Exception as e:
+        log.warning("Auto-activation of new camera %s warning: %s", cam_id, e)
+
+    return JSONResponse({"success": ok, "id": cam_id, "activeCameraId": _active_camera_id})
 
 @app.put("/api/cameras/{cam_id}")
 @app.patch("/api/cameras/{cam_id}")
 async def update_camera_api(cam_id: str, body: dict):
-    """Update existing camera parameters and sync active pipeline zone."""
+    """Update existing camera parameters and re-open live stream if active."""
     global _active_zone
     ok = await db.update_camera(cam_id, body)
     
@@ -449,6 +523,13 @@ async def update_camera_api(cam_id: str, body: dict):
         if pipeline:
             pipeline.set_zone(_active_zone)
         log.info("Updated active pipeline zone to %s for camera %s", _active_zone, cam_id)
+
+    # Re-activate live camera stream if currently active
+    if cam_id == _active_camera_id:
+        try:
+            await activate_camera_api(cam_id)
+        except Exception as err:
+            log.warning("Re-activating updated camera %s failed: %s", cam_id, err)
         
     return JSONResponse({"success": ok, "id": cam_id, "active_zone": _active_zone})
 
@@ -488,18 +569,20 @@ async def activate_camera_api(cam_id: str):
     return JSONResponse({"success": True, "activeCameraId": cam_id})
 
 import io
+import csv
 from fastapi.responses import Response
 
-@app.get("/api/export/excel")
-async def export_excel_api(
+@app.get("/api/export/csv")
+async def export_csv_api(
     cameras: str = "all",
     date_range: str = "all",
     start_date: str | None = None,
     end_date: str | None = None,
     zone_id: str = "all",
+    worker_id: str = "all",
     status: str = "all"
 ):
-    """Generate and stream a formatted .xlsx Excel report with multi-filter support."""
+    """Generate and stream a clean formatted CSV audit report."""
     try:
         import pandas as pd
         camera_list = [c.strip() for c in cameras.split(",") if c.strip()] if cameras != "all" else ["all"]
@@ -509,46 +592,111 @@ async def export_excel_api(
             start_date=start_date,
             end_date=end_date,
             zone_id=zone_id,
+            worker_id=worker_id,
+            status=status,
+            limit=5000
+        )
+
+        rows = []
+        for v in violations:
+            missing_items = ", ".join(v.get("missing", [])) or "None"
+            detected_items = ", ".join(v.get("detected", [])) or "None"
+            rows.append({
+                "Event ID": v.get("id"),
+                "Date & Time": v.get("timestamp"),
+                "Worker ID": v.get("workerId"),
+                "Zone ID": v.get("zoneId"),
+                "Camera ID": v.get("cameraId"),
+                "Violated Stuff (Missing PPE)": missing_items,
+                "Detected PPE": detected_items,
+                "Confidence %": f"{v.get('confidence', 0.0)*100:.1f}%",
+                "Review Status": "Acknowledged" if v.get("acknowledged") else "Unacknowledged"
+            })
+
+        df = pd.DataFrame(rows if rows else [{
+            "Event ID": "N/A", "Date & Time": "N/A", "Worker ID": "N/A", "Zone ID": "N/A",
+            "Camera ID": "N/A", "Violated Stuff (Missing PPE)": "No Events Found",
+            "Detected PPE": "N/A", "Confidence %": "N/A", "Review Status": "N/A"
+        }])
+
+        csv_content = df.to_csv(index=False)
+        filename = f"EdgeVision_Report_{date_range}_{time.strftime('%Y%m%d_%H%M%S')}.csv"
+        return Response(
+            content=csv_content,
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except Exception as err:
+        log.error("CSV export error: %s", err)
+        return JSONResponse({"error": f"Failed to generate CSV file: {err}"}, status_code=500)
+
+@app.get("/api/export/excel")
+async def export_excel_api(
+    cameras: str = "all",
+    date_range: str = "all",
+    start_date: str | None = None,
+    end_date: str | None = None,
+    zone_id: str = "all",
+    worker_id: str = "all",
+    status: str = "all"
+):
+    """Generate and stream a formatted .xlsx Excel report with Executive Summary & Audit Trail sheets."""
+    try:
+        import pandas as pd
+        camera_list = [c.strip() for c in cameras.split(",") if c.strip()] if cameras != "all" else ["all"]
+        violations = await db.get_filtered_violations(
+            camera_ids=camera_list,
+            date_range=date_range,
+            start_date=start_date,
+            end_date=end_date,
+            zone_id=zone_id,
+            worker_id=worker_id,
             status=status,
             limit=5000
         )
         
         data = []
         for v in violations:
+            missing_items = ", ".join(v.get("missing", [])) or "None"
+            detected_items = ", ".join(v.get("detected", [])) or "None"
             data.append({
                 "Event ID": v.get("id"),
-                "Timestamp": v.get("timestamp"),
-                "Camera ID": v.get("cameraId"),
-                "Zone ID": v.get("zoneId"),
+                "Date & Time": v.get("timestamp"),
                 "Worker ID": v.get("workerId"),
-                "Violation Type": v.get("type"),
-                "Detected PPE": ", ".join(v.get("detected", [])),
-                "Missing PPE": ", ".join(v.get("missing", [])),
-                "Confidence": f"{v.get('confidence', 0.0)*100:.1f}%",
-                "Review Status": "Acknowledged" if v.get("acknowledged") else "Unacknowledged",
-                "Proof Image": v.get("imagePath", ""),
-                "Proof Video": v.get("videoPath", "")
+                "Zone ID": v.get("zoneId"),
+                "Camera ID": v.get("cameraId"),
+                "Violated Stuff (Missing PPE)": missing_items,
+                "Detected PPE": detected_items,
+                "Confidence %": f"{v.get('confidence', 0.0)*100:.1f}%",
+                "Review Status": "Acknowledged" if v.get("acknowledged") else "Unacknowledged"
             })
 
         df = pd.DataFrame(data if data else [{
-            "Event ID": "N/A", "Timestamp": "N/A", "Camera ID": "N/A", "Zone ID": "N/A",
-            "Worker ID": "N/A", "Violation Type": "No Events Found", "Detected PPE": "",
-            "Missing PPE": "", "Confidence": "N/A", "Review Status": "N/A",
-            "Proof Image": "", "Proof Video": ""
+            "Event ID": "N/A", "Date & Time": "N/A", "Worker ID": "N/A", "Zone ID": "N/A",
+            "Camera ID": "N/A", "Violated Stuff (Missing PPE)": "No Events Found",
+            "Detected PPE": "N/A", "Confidence %": "N/A", "Review Status": "N/A"
         }])
+
+        total_count = len(violations)
+        unacked_count = sum(1 for v in violations if not v.get("acknowledged"))
+        acked_count = total_count - unacked_count
+        unique_workers = len(set(v.get("workerId") for v in violations if v.get("workerId")))
 
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, sheet_name='Violation Reports', index=False)
             summary_data = [
-                {"Metric": "Total Events Exported", "Value": len(violations)},
-                {"Metric": "Date Range Filter", "Value": date_range},
-                {"Metric": "Cameras Filter", "Value": cameras},
-                {"Metric": "Zone Filter", "Value": zone_id},
-                {"Metric": "Status Filter", "Value": status},
-                {"Metric": "Exported At (UTC)", "Value": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())}
+                {"Executive Metric": "Total Recorded Incidents", "Value": total_count},
+                {"Executive Metric": "Unacknowledged Violations", "Value": unacked_count},
+                {"Executive Metric": "Reviewed / Acknowledged", "Value": acked_count},
+                {"Executive Metric": "Unique Workers Tracked", "Value": unique_workers},
+                {"Executive Metric": "Date Range Filter", "Value": date_range},
+                {"Executive Metric": "Zone Filter", "Value": zone_id},
+                {"Executive Metric": "Worker Filter", "Value": worker_id},
+                {"Executive Metric": "Status Filter", "Value": status},
+                {"Executive Metric": "Export Generated At (UTC)", "Value": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())}
             ]
-            pd.DataFrame(summary_data).to_excel(writer, sheet_name='Export Summary', index=False)
+            pd.DataFrame(summary_data).to_excel(writer, sheet_name='Executive Summary', index=False)
+            df.to_excel(writer, sheet_name='Incident Audit Trail', index=False)
 
         output.seek(0)
         filename = f"EdgeVision_Report_{date_range}_{time.strftime('%Y%m%d_%H%M%S')}.xlsx"

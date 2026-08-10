@@ -60,13 +60,22 @@ export function EventsPage() {
     [q, type, zone, eventList],
   );
 
+  const handleExportCSV = () => {
+    const params = new URLSearchParams();
+    if (zone !== "all") params.set("zone_id", zone);
+    window.location.href = `/api/export/csv?${params.toString()}`;
+  };
+
   return (
     <AppShell>
       <PageHeader
         title="Event History & Proof of Evidence"
         subtitle="Full audit trail of AI pipeline detection events, complete with recorded frame evidence snapshots."
         actions={
-          <button className="display-title inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-[11px] text-primary-foreground">
+          <button
+            onClick={handleExportCSV}
+            className="display-title inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-[11px] text-primary-foreground font-semibold hover:bg-primary/90 transition-colors shadow-sm cursor-pointer"
+          >
             <Download className="size-3.5" /> Export Audit CSV
           </button>
         }

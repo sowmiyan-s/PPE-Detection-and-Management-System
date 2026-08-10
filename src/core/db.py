@@ -18,6 +18,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import ConnectionFailure
 
 from src.core import config
+from src.core.cache import mongo_cache, cached
 
 log = logging.getLogger(__name__)
 
@@ -181,20 +182,28 @@ async def record_violation(
 ) -> str:
     """Record a violation event with image/video evidence directly in MongoDB.
     Deduplicates active unacknowledged violations per worker ID to prevent duplicate reports."""
-    # Deduplication Guard: Check if an unacknowledged violation already exists for this worker ID
+    # Deduplication Guard: Check if an unacknowledged violation already exists for this worker ID or recent same-zone event
+    now_ts = datetime.utcnow()
     for v in _MEM_VIOLATIONS:
         if v.get("worker_track_id") == worker_id and v.get("acknowledgement_status") != "reviewed":
             log.info("Skipping duplicate violation record for worker %s (existing active event: %s)", worker_id, v["id"])
             return v["id"]
+        v_ts = v.get("timestamp")
+        if isinstance(v_ts, datetime) and (now_ts - v_ts).total_seconds() < 15.0:
+            if v.get("zone_id") == zone_id and set(v.get("missing_ppe", [])) == set(missing_ppe):
+                log.info("Skipping duplicate violation record for zone %s (recent event: %s)", zone_id, v["id"])
+                return v["id"]
 
     try:
         database = get_db()
         existing_doc = await database.violation_events.find_one({
-            "worker_track_id": worker_id,
-            "acknowledgement_status": {"$ne": "reviewed"}
+            "$or": [
+                {"worker_track_id": worker_id, "acknowledgement_status": {"$ne": "reviewed"}},
+                {"zone_id": zone_id, "missing_ppe": missing_ppe, "timestamp": {"$gte": now_ts - timedelta(seconds=15)}}
+            ]
         })
         if existing_doc:
-            log.info("Skipping duplicate DB record for worker %s (active event: %s)", worker_id, existing_doc["id"])
+            log.info("Skipping duplicate DB record for zone %s (active event: %s)", zone_id, existing_doc["id"])
             return existing_doc["id"]
     except Exception:
         pass
@@ -237,6 +246,7 @@ async def record_violation(
             })
 
             log.info("Recorded violation %s for %s (camera: %s, zone: %s)", evt_id, worker_id, camera_id, zone_id)
+            await mongo_cache.invalidate_tags(["violations", "stats", "reports", "workers"])
             return evt_id
         except Exception as e:
             if attempt < max_retries:
@@ -245,6 +255,7 @@ async def record_violation(
                 await asyncio.sleep(0.5 * (attempt + 1))
             else:
                 log.error("Recorded violation %s in fallback memory cache (DB error: %s)", evt_id, e)
+    await mongo_cache.invalidate_tags(["violations", "stats", "reports", "workers"])
     return evt_id
 
 async def acknowledge_violation(evt_id: str) -> bool:
@@ -252,6 +263,7 @@ async def acknowledge_violation(evt_id: str) -> bool:
     for v in _MEM_VIOLATIONS:
         if v.get("id") == evt_id:
             v["acknowledgement_status"] = "reviewed"
+    await mongo_cache.invalidate_tags(["violations", "stats", "reports", "workers"])
     try:
         db = get_db()
         result = await db.violation_events.update_one(
@@ -267,6 +279,7 @@ async def delete_violation(evt_id: str) -> bool:
     """Delete a single violation event and its evidence record from MongoDB."""
     global _MEM_VIOLATIONS
     _MEM_VIOLATIONS = [v for v in _MEM_VIOLATIONS if v.get("id") != evt_id]
+    await mongo_cache.invalidate_tags(["violations", "stats", "reports", "workers"])
     try:
         db = get_db()
         result = await db.violation_events.delete_one({"id": evt_id})
@@ -279,6 +292,7 @@ async def delete_all_violations() -> bool:
     """Clear all past violation evidence records from MongoDB."""
     global _MEM_VIOLATIONS
     _MEM_VIOLATIONS.clear()
+    await mongo_cache.invalidate_tags(["violations", "stats", "reports", "workers"])
     try:
         db = get_db()
         await db.violation_events.delete_many({})
@@ -289,6 +303,7 @@ async def delete_all_violations() -> bool:
 
 async def delete_camera(cam_id: str) -> bool:
     """Remove a camera from DB."""
+    await mongo_cache.invalidate_tags(["cameras", "stats"])
     try:
         db = get_db()
         result = await db.cameras.delete_one({"id": cam_id})
@@ -297,6 +312,7 @@ async def delete_camera(cam_id: str) -> bool:
         log.error("Failed to delete camera %s: %s", cam_id, e)
         return False
 
+@cached(ttl=5.0, tags=["violations"])
 async def get_violations(limit: int = 100) -> list[dict[str, Any]]:
     """Retrieve recent violation events with proof of evidence."""
     events = []
@@ -345,6 +361,7 @@ _DEFAULT_SEED_ZONES = [
     {"id": "ZONE-05", "name": "hazardous_material", "description": "Hazardous material handling zone", "required_ppe": ["helmet", "safety-suit", "boots", "gloves", "goggles"]},
 ]
 
+@cached(ttl=60.0, tags=["zones"])
 async def get_zones() -> list[dict[str, Any]]:
     """Retrieve configured safety zones with their required PPE."""
     try:
@@ -367,6 +384,7 @@ async def get_zones() -> list[dict[str, Any]]:
 
 async def save_zone(zone_data: dict) -> bool:
     """Insert or update safety zone configuration in DB."""
+    await mongo_cache.invalidate_tags(["zones", "stats"])
     try:
         db = get_db()
         zone_id = zone_data.get("id") or f"ZONE-{uuid.uuid4().hex[:4].upper()}"
@@ -395,6 +413,7 @@ async def save_zone(zone_data: dict) -> bool:
         log.error("Failed to save zone: %s", e)
         return False
 
+@cached(ttl=10.0, tags=["workers"])
 async def get_workers() -> list[dict[str, Any]]:
     """Retrieve tracked worker compliance scores calculated from DB or _MEM_VIOLATIONS."""
     try:
@@ -463,6 +482,7 @@ async def get_workers() -> list[dict[str, Any]]:
         res.append(wdata)
     return res
 
+@cached(ttl=10.0, tags=["reports"])
 async def get_reports() -> dict[str, Any]:
     """Calculate aggregated safety compliance reporting from DB or _MEM_VIOLATIONS."""
     try:
@@ -578,6 +598,7 @@ async def get_reports() -> dict[str, Any]:
         "daily_trend": [{"day": today_str, "violations": total_violations, "compliance": max(70, 100 - total_violations * 2)}],
     }
 
+@cached(ttl=5.0, tags=["stats"])
 async def get_stats() -> dict[str, Any]:
     """Get live overview stats for the dashboard from DB or memory fallback."""
     try:
@@ -636,6 +657,7 @@ _MEM_CAMERAS: list[dict] = [
     }
 ]
 
+@cached(ttl=30.0, tags=["cameras"])
 async def get_cameras() -> list[dict[str, Any]]:
     """Retrieve active camera streams from DB or in-memory fallback."""
     try:
@@ -674,6 +696,7 @@ async def save_camera(cam_data: dict) -> bool:
     }
     # Update local memory
     _MEM_CAMERAS.append(cam_entry)
+    await mongo_cache.invalidate_tags(["cameras", "stats"])
 
     try:
         db = get_db()
@@ -699,6 +722,7 @@ async def save_camera(cam_data: dict) -> bool:
 
 async def update_camera(cam_id: str, cam_data: dict) -> bool:
     """Update camera properties in DB."""
+    await mongo_cache.invalidate_tags(["cameras", "stats"])
     try:
         db = get_db()
         update_doc = {}
@@ -726,16 +750,18 @@ async def update_camera(cam_id: str, cam_data: dict) -> bool:
         log.error("Failed to update camera %s: %s", cam_id, e)
         return False
 
+@cached(ttl=5.0, tags=["violations"])
 async def get_filtered_violations(
     camera_ids: list[str] | None = None,
     date_range: str = "all",
     start_date: str | None = None,
     end_date: str | None = None,
     zone_id: str | None = None,
+    worker_id: str | None = None,
     status: str | None = None,
     limit: int = 1000
 ) -> list[dict[str, Any]]:
-    """Query violation events matching filter criteria for reporting & Excel export."""
+    """Query violation events matching filter criteria for reporting & Excel/CSV export."""
     try:
         db = get_db()
         query: dict[str, Any] = {}
@@ -745,6 +771,9 @@ async def get_filtered_violations(
 
         if zone_id and zone_id != "all":
             query["zone_id"] = zone_id
+
+        if worker_id and worker_id != "all":
+            query["worker_track_id"] = worker_id
 
         if status == "unacknowledged":
             query["acknowledgement_status"] = {"$ne": "reviewed"}
@@ -781,9 +810,17 @@ async def get_filtered_violations(
     except Exception as e:
         log.warning("MongoDB filtered query failed, falling back to memory: %s", e)
         events = []
-
-    if not events:
-        events = _MEM_VIOLATIONS[:limit]
+        for d in _MEM_VIOLATIONS:
+            if zone_id and zone_id != "all" and d.get("zone_id") != zone_id:
+                continue
+            if worker_id and worker_id != "all" and d.get("worker_track_id") != worker_id:
+                continue
+            if status == "unacknowledged" and d.get("acknowledgement_status") == "reviewed":
+                continue
+            if status == "reviewed" and d.get("acknowledgement_status") != "reviewed":
+                continue
+            events.append(d)
+        events = events[:limit]
         
     res = []
     for d in events:

@@ -248,7 +248,7 @@ class PPEDetector:
         else:
             raw_persons = _suppress_overlapping_persons(raw_persons, iou_thresh=0.45)
 
-        # ── Walk-Robust Spatial Track Memory Matching (handles scale changes) ──
+        # ── Walk-Robust Spatial Track Memory Matching (handles scale changes & occlusion) ──
         persons: list[dict] = []
         used_memory_ids: set[int] = set()
 
@@ -257,24 +257,28 @@ class PPEDetector:
             raw_id = rp["raw_id"]
             assigned_id = None
 
-            # 1. Match against active track memory using walk-robust similarity
-            best_sim = 0.0
-            best_id = None
-            for mem_id, mem_data in self._track_memory.items():
-                if mem_id in used_memory_ids:
-                    continue
-                sim = self._compute_walk_robust_similarity(box, mem_data["box"])
-                if sim > best_sim:
-                    best_sim = sim
-                    best_id = mem_id
-
-            if best_sim >= 0.25 and best_id is not None:
-                assigned_id = best_id
-            elif raw_id is not None and raw_id > 0 and raw_id not in used_memory_ids:
+            # 1. Direct raw_id match if existing in tracking memory
+            if raw_id is not None and raw_id > 0 and raw_id in self._track_memory and raw_id not in used_memory_ids:
                 assigned_id = raw_id
             else:
-                assigned_id = self._next_synthetic_id
-                self._next_synthetic_id += 1
+                # 2. Match against active track memory using walk-robust similarity
+                best_sim = 0.0
+                best_id = None
+                for mem_id, mem_data in self._track_memory.items():
+                    if mem_id in used_memory_ids:
+                        continue
+                    sim = self._compute_walk_robust_similarity(box, mem_data["box"])
+                    if sim > best_sim:
+                        best_sim = sim
+                        best_id = mem_id
+
+                if best_sim >= 0.18 and best_id is not None:
+                    assigned_id = best_id
+                elif raw_id is not None and raw_id > 0 and raw_id not in used_memory_ids:
+                    assigned_id = raw_id
+                else:
+                    assigned_id = self._next_synthetic_id
+                    self._next_synthetic_id += 1
 
             used_memory_ids.add(assigned_id)
             self._track_memory[assigned_id] = {
@@ -289,10 +293,10 @@ class PPEDetector:
                 "confidence": rp["confidence"],
             })
 
-        # Clean stale tracking memory older than 45 frames
+        # Clean stale tracking memory older than 90 frames (~4.5 seconds)
         stale_ids = [
             tid for tid, tdata in self._track_memory.items()
-            if self._frame_count - tdata["last_frame"] > 45
+            if self._frame_count - tdata["last_frame"] > 90
         ]
         for tid in stale_ids:
             del self._track_memory[tid]
