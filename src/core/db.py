@@ -347,9 +347,10 @@ async def get_violations(limit: int = 100) -> list[dict[str, Any]]:
             "imagePath": d.get("image_path", ""),
             "imageBase64": d.get("image_base64", ""),
             "videoPath": d.get("video_path", ""),
-            "status": d.get("acknowledgement_status"),
+            "status": d.get("acknowledgement_status", "unacknowledged"),
             "modelVersion": d.get("model_version"),
-            "acknowledged": d.get("acknowledgement_status") == "reviewed",
+            "acknowledged": d.get("acknowledgement_status") in ("accepted", "reviewed"),
+            "declined": d.get("acknowledgement_status") == "declined",
             "cameraId": d.get("camera_id", "CAM-01")
         })
     return res
@@ -847,6 +848,7 @@ async def get_filtered_violations(
             "confidence": d.get("confidence", 0.0),
             "timestamp": ts_str,
             "imagePath": d.get("image_path", ""),
+            "imageBase64": d.get("image_base64", ""),
             "videoPath": d.get("video_path", ""),
             "status": v_status,
             "acknowledged": v_status in ("accepted", "reviewed"),

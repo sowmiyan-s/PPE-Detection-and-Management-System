@@ -99,6 +99,11 @@ class PPEDetector:
         self._frame_count: int = 0
         self._next_synthetic_id: int = 101
 
+        # Adaptive frame-skip cache for low-end CPU systems
+        self._last_worker_states: list[dict] = []
+        self._last_persons: list[dict] = []
+        self._last_ppe_items: list[dict] = []
+
     def update_zone_rule(self, zone_name: str, required_ppe: set[str]) -> None:
         """Update required PPE rules for a zone at runtime."""
         with self._lock:
@@ -147,6 +152,16 @@ class PPEDetector:
         """
         self._frame_count += 1
         active_zone = zone or self.default_zone
+
+        # Low-end CPU adaptive frame skip check: reuse cached detections on skipped frames
+        if config.FRAME_SKIP_INTERVAL > 0 and (self._frame_count % (config.FRAME_SKIP_INTERVAL + 1) != 0) and self._last_worker_states:
+            for person in self._last_persons:
+                compliant = next((w["compliant"] for w in self._last_worker_states if w.get("worker_id") == f"Worker-{person['id']}"), True)
+                missing = next((set(w.get("missing_ppe", [])) for w in self._last_worker_states if w.get("worker_id") == f"Worker-{person['id']}"), set())
+                self._draw_person(frame, person, compliant, missing, [])
+            for ppe in self._last_ppe_items:
+                self._draw_ppe(frame, ppe)
+            return frame, self._last_worker_states
 
         # ── Stage 1+2: detect + track (raw frame — no enhancer for speed) ────
         try:
@@ -363,6 +378,11 @@ class PPEDetector:
         # Draw PPE item boxes
         for ppe in ppe_items:
             self._draw_ppe(frame, ppe)
+
+        # Save last detection caches for adaptive frame skipping
+        self._last_worker_states = worker_states
+        self._last_persons = persons
+        self._last_ppe_items = ppe_items
 
         # Cleanup workers that have left the scene
         self._worker_tracker.cleanup_stale()
