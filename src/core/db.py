@@ -35,12 +35,14 @@ def get_db():
     global _client, _db
     if _db is None:
         try:
+            import certifi
             _client = AsyncIOMotorClient(
                 config.MONGODB_URI,
                 serverSelectionTimeoutMS=5000,
                 connectTimeoutMS=5000,
                 socketTimeoutMS=5000,
                 tls=True,
+                tlsCAFile=certifi.where(),
                 tlsAllowInvalidCertificates=True,
             )
             _db = _client[config.MONGODB_DB_NAME]
@@ -78,16 +80,19 @@ async def ensure_db():
                     "name": "EdgeVision Live AI Stream", 
                     "source": "0", 
                     "location": "Main entrance",
-                    "zone_id": "ZONE-01",
-                    "target_fps": 20,
+                    "zone_id": "general_plant",
+                    "resolution": "1280x720",
+                    "fps": 20,
                     "is_active": 1,
-                    "created_at": datetime.utcnow(),
-                    "updated_at": datetime.utcnow()
+                    "rtsp_url": ""
                 }
             ]
             await db.cameras.insert_many(cameras)
 
-        # Seed roles if empty
+        log.info("Database collections & seed data verified.")
+    except Exception as e:
+        err_str = str(e).split("\n")[0][:120]
+        log.warning("MongoDB initialization info: %s (using memory fallback)", err_str)        # Seed roles if empty
         if await db.roles.count_documents({}) == 0:
             await db.roles.insert_many([
                 {"role_id": "ROLE-ADMIN", "name": "Safety Manager", "permissions": ["read", "write", "acknowledge", "delete"]},
@@ -250,11 +255,12 @@ async def record_violation(
             return evt_id
         except Exception as e:
             if attempt < max_retries:
-                log.warning("DB write attempt %d failed for %s, retrying: %s", attempt + 1, evt_id, e)
+                err_str = str(e).split("\n")[0][:120]
+                log.warning("DB write attempt %d failed for %s, retrying: %s", attempt + 1, evt_id, err_str)
                 import asyncio
                 await asyncio.sleep(0.5 * (attempt + 1))
             else:
-                log.error("Recorded violation %s in fallback memory cache (DB error: %s)", evt_id, e)
+                log.warning("Recorded violation %s in fallback memory store (MongoDB connection offline)", evt_id)
     await mongo_cache.invalidate_tags(["violations", "stats", "reports", "workers"])
     return evt_id
 
@@ -322,7 +328,8 @@ async def get_violations(limit: int = 100) -> list[dict[str, Any]]:
         cursor = db.violation_events.find().sort("timestamp", -1).limit(limit)
         events = await cursor.to_list(length=limit)
     except Exception as e:
-        log.warning("MongoDB fetch failed, using fallback memory: %s", e)
+        err_str = str(e).split("\n")[0][:120]
+        log.warning("MongoDB fetch failed, using fallback memory: %s", err_str)
 
     if not events:
         events = _MEM_VIOLATIONS[:limit]
@@ -459,7 +466,8 @@ async def get_workers() -> list[dict[str, Any]]:
                 })
             return res
     except Exception as e:
-        log.warning("MongoDB get_workers offline: calculating from memory fallback (%s)", e)
+        err_str = str(e).split("\n")[0][:120]
+        log.warning("MongoDB get_workers offline: calculating from memory fallback (%s)", err_str)
 
     # In-memory calculation fallback
     worker_map: dict[str, dict] = {}
@@ -566,7 +574,8 @@ async def get_reports() -> dict[str, Any]:
                 "daily_trend": daily_trend,
             }
     except Exception as e:
-        log.warning("MongoDB get_reports offline: calculating from memory fallback (%s)", e)
+        err_str = str(e).split("\n")[0][:120]
+        log.warning("MongoDB get_reports offline: calculating from memory fallback (%s)", err_str)
 
     # In-memory calculation fallback
     total_violations = len(_MEM_VIOLATIONS)
@@ -632,7 +641,8 @@ async def get_stats() -> dict[str, Any]:
             "daily_compliance": compliance,
         }
     except Exception as e:
-        log.warning("MongoDB get_stats offline: calculating from memory fallback (%s)", e)
+        err_str = str(e).split("\n")[0][:120]
+        log.warning("MongoDB get_stats offline: calculating from memory fallback (%s)", err_str)
 
     active_violations = sum(1 for v in _MEM_VIOLATIONS if v.get("acknowledgement_status") != "reviewed")
     unique_workers = len(set(v.get("worker_track_id") or v.get("workerId") for v in _MEM_VIOLATIONS if v.get("worker_track_id") or v.get("workerId")))
@@ -812,7 +822,8 @@ async def get_filtered_violations(
         cursor = db.violation_events.find(query).sort("timestamp", -1).limit(limit)
         events = await cursor.to_list(length=limit)
     except Exception as e:
-        log.warning("MongoDB filtered query failed, falling back to memory: %s", e)
+        err_str = str(e).split("\n")[0][:120]
+        log.warning("MongoDB filtered query failed, falling back to memory: %s", err_str)
         events = []
         for d in _MEM_VIOLATIONS:
             if zone_id and zone_id != "all" and d.get("zone_id") != zone_id:
