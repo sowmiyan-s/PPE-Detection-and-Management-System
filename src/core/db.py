@@ -74,9 +74,9 @@ async def ensure_db():
             cameras = [
                 {
                     "id": "CAM-01", 
-                    "name": "Local Webcam (Index 0)", 
+                    "name": "EdgeVision Primary Camera", 
                     "source": "0", 
-                    "location": "Plant Area",
+                    "location": "Plant Floor Area",
                     "zone_id": "general_plant",
                     "resolution": "1280x720",
                     "fps": 20,
