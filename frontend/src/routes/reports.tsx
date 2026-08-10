@@ -114,7 +114,7 @@ function ReportsPage() {
   const dailyTrend = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const v of filteredEvents) {
-      const day = v.timestamp ? v.timestamp.split(" ")[0] : "Today";
+      const day = v.timestamp ? String(v.timestamp.split(" ")[0]) : "Today";
       counts[day] = (counts[day] || 0) + 1;
     }
     return Object.entries(counts)

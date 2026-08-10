@@ -131,56 +131,7 @@ SAMPLE_PROOF_SVG = (
     "</svg>"
 )
 
-_MEM_VIOLATIONS: list[dict[str, Any]] = [
-    {
-        "id": "EVT-E3476F",
-        "zone_id": "general_plant",
-        "camera_id": "CAM-01",
-        "worker_track_id": "Worker-11",
-        "violation_type": "Missing Hard_hat, Vest",
-        "detected_ppe": ["Boots"],
-        "missing_ppe": ["Hard_hat", "Vest"],
-        "confidence": 0.94,
-        "image_path": "",
-        "image_base64": SAMPLE_PROOF_SVG,
-        "video_path": "",
-        "model_version": "edgevision-ppe-v3.2-fp16",
-        "timestamp": datetime.utcnow() - timedelta(minutes=5),
-        "acknowledgement_status": "unacknowledged"
-    },
-    {
-        "id": "EVT-D72D37",
-        "zone_id": "general_plant",
-        "camera_id": "CAM-01",
-        "worker_track_id": "Worker-102",
-        "violation_type": "Missing Hard_hat, Vest",
-        "detected_ppe": ["Boots", "Glove"],
-        "missing_ppe": ["Hard_hat", "Vest"],
-        "confidence": 0.91,
-        "image_path": "",
-        "image_base64": SAMPLE_PROOF_SVG,
-        "video_path": "",
-        "model_version": "edgevision-ppe-v3.2-fp16",
-        "timestamp": datetime.utcnow() - timedelta(minutes=15),
-        "acknowledgement_status": "unacknowledged"
-    },
-    {
-        "id": "EVT-6AEF6A",
-        "zone_id": "work_at_height",
-        "camera_id": "CAM-01",
-        "worker_track_id": "Worker-101",
-        "violation_type": "Missing safety_belt, hook",
-        "detected_ppe": ["Hard_hat", "Vest", "Boots"],
-        "missing_ppe": ["safety_belt", "hook"],
-        "confidence": 0.88,
-        "image_path": "",
-        "image_base64": SAMPLE_PROOF_SVG,
-        "video_path": "",
-        "model_version": "edgevision-ppe-v3.2-fp16",
-        "timestamp": datetime.utcnow() - timedelta(minutes=30),
-        "acknowledgement_status": "unacknowledged"
-    }
-]
+_MEM_VIOLATIONS: list[dict[str, Any]] = []
 
 async def record_violation(
     worker_id: str,
@@ -667,26 +618,7 @@ async def get_stats() -> dict[str, Any]:
         "daily_compliance": max(60, 100 - (active_violations * 3)) if active_violations > 0 else 100,
     }
 
-_MEM_CAMERAS: list[dict] = [
-    {
-        "id": "CAM-01",
-        "name": "EdgeVision Primary Camera",
-        "source": "0",
-        "location": "Plant Floor Area",
-        "is_active": 1,
-        "zone_id": "general_plant",
-        "target_fps": 20
-    },
-    {
-        "id": "CAM-02",
-        "name": "EdgeVision RTSP Camera Feed",
-        "source": "rtsp://localhost:8554/cam",
-        "location": "Plant Entrance (RTSP Stream)",
-        "is_active": 0,
-        "zone_id": "general_plant",
-        "target_fps": 20
-    }
-]
+_MEM_CAMERAS: list[dict] = []
 
 @cached(ttl=15.0, tags=["cameras"])
 async def get_cameras() -> list[dict[str, Any]]:

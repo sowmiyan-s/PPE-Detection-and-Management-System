@@ -129,10 +129,10 @@ function ViolationsPage() {
     triageTab === "unacknowledged"
       ? unacknowledgedList
       : triageTab === "accepted"
-      ? acceptedList
-      : triageTab === "declined"
-      ? declinedList
-      : violationList;
+        ? acceptedList
+        : triageTab === "declined"
+          ? declinedList
+          : violationList;
 
   const handleUpdateStatus = (id: string, newStatus: "accepted" | "declined") => {
     // Optimistic UI update
@@ -140,11 +140,11 @@ function ViolationsPage() {
       violationList.map((v) =>
         v.id === id
           ? {
-              ...v,
-              status: newStatus,
-              acknowledged: newStatus === "accepted",
-              declined: newStatus === "declined",
-            }
+            ...v,
+            status: newStatus,
+            acknowledged: newStatus === "accepted",
+            declined: newStatus === "declined",
+          }
           : v
       )
     );
@@ -195,41 +195,37 @@ function ViolationsPage() {
           <div key="triage-tabs" className="flex items-center gap-1 rounded border border-border bg-panel p-1">
             <button
               onClick={() => setTriageTab("unacknowledged")}
-              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                triageTab === "unacknowledged"
-                  ? "bg-warning text-warning-foreground font-semibold"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
+              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${triageTab === "unacknowledged"
+                ? "bg-warning text-warning-foreground font-semibold"
+                : "text-muted-foreground hover:text-foreground"
+                }`}
             >
               <AlertTriangle className="size-3.5" /> Pending Review ({unacknowledgedList.length})
             </button>
             <button
               onClick={() => setTriageTab("accepted")}
-              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                triageTab === "accepted"
-                  ? "bg-success text-success-foreground font-semibold"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
+              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${triageTab === "accepted"
+                ? "bg-success text-success-foreground font-semibold"
+                : "text-muted-foreground hover:text-foreground"
+                }`}
             >
               <CheckCircle2 className="size-3.5" /> Confirmed Real ({acceptedList.length})
             </button>
             <button
               onClick={() => setTriageTab("declined")}
-              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                triageTab === "declined"
-                  ? "bg-destructive/80 text-destructive-foreground font-semibold"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
+              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${triageTab === "declined"
+                ? "bg-destructive/80 text-destructive-foreground font-semibold"
+                : "text-muted-foreground hover:text-foreground"
+                }`}
             >
               <XCircle className="size-3.5" /> False Alerts ({declinedList.length})
             </button>
             <button
               onClick={() => setTriageTab("all")}
-              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                triageTab === "all"
-                  ? "bg-primary text-primary-foreground font-semibold"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
+              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${triageTab === "all"
+                ? "bg-primary text-primary-foreground font-semibold"
+                : "text-muted-foreground hover:text-foreground"
+                }`}
             >
               <HistoryIcon className="size-3.5" /> All Audit Log ({violationList.length})
             </button>
@@ -288,10 +284,10 @@ function ViolationsPage() {
               {triageTab === "unacknowledged"
                 ? "No Pending Violations to Triage"
                 : triageTab === "accepted"
-                ? "No Confirmed Real Violations Recorded"
-                : triageTab === "declined"
-                ? "No False Alerts Flagged"
-                : "No Violation Evidence Recorded"}
+                  ? "No Confirmed Real Violations Recorded"
+                  : triageTab === "declined"
+                    ? "No False Alerts Flagged"
+                    : "No Violation Evidence Recorded"}
             </h3>
             <p className="text-xs text-muted-foreground mt-1">
               {triageTab === "unacknowledged"
@@ -308,18 +304,16 @@ function ViolationsPage() {
             return (
               <article
                 key={v.id}
-                className={`relative overflow-hidden rounded transition-all ${
-                  isConfirmedReal
-                    ? "panel-surface border border-success/40"
-                    : isDeclinedFalse
+                className={`relative overflow-hidden rounded transition-all ${isConfirmedReal
+                  ? "panel-surface border border-success/40"
+                  : isDeclinedFalse
                     ? "panel-surface opacity-75 border border-muted"
                     : "alert-surface border border-destructive/50"
-                }`}
+                  }`}
               >
                 <div
-                  className={`absolute inset-y-0 left-0 w-1.5 ${
-                    isConfirmedReal ? "bg-success" : isDeclinedFalse ? "bg-muted-foreground/40" : "bg-destructive"
-                  }`}
+                  className={`absolute inset-y-0 left-0 w-1.5 ${isConfirmedReal ? "bg-success" : isDeclinedFalse ? "bg-muted-foreground/40" : "bg-destructive"
+                    }`}
                 />
                 <div className="flex flex-col gap-4 pl-6 pr-4 py-4 lg:flex-row lg:items-center">
                   <Evidence
@@ -344,7 +338,7 @@ function ViolationsPage() {
                       <span className="telemetry rounded-sm bg-background/60 px-1.5 py-0.5 text-[10px] text-muted-foreground font-mono">
                         {v.id}
                       </span>
-                      
+
                       {/* Status Badges */}
                       {isConfirmedReal ? (
                         <span className="rounded bg-success/20 px-2 py-0.5 text-[10px] text-success font-semibold border border-success/30 flex items-center gap-1">
@@ -401,11 +395,10 @@ function ViolationsPage() {
                       {/* Confirm Real Violation Button */}
                       <button
                         onClick={() => handleUpdateStatus(v.id, "accepted")}
-                        className={`display-title inline-flex items-center justify-center gap-1 rounded px-2.5 py-1.5 text-[10px] font-semibold transition-colors cursor-pointer ${
-                          isConfirmedReal
-                            ? "bg-success text-success-foreground shadow"
-                            : "bg-success/20 text-success hover:bg-success hover:text-success-foreground border border-success/40"
-                        }`}
+                        className={`display-title inline-flex items-center justify-center gap-1 rounded px-2.5 py-1.5 text-[10px] font-semibold transition-colors cursor-pointer ${isConfirmedReal
+                          ? "bg-success text-success-foreground shadow"
+                          : "bg-success/20 text-success hover:bg-success hover:text-success-foreground border border-success/40"
+                          }`}
                         title="Confirm as a real safety breach for official reports"
                       >
                         <Check className="size-3" /> {isConfirmedReal ? "Confirmed" : "Confirm Real"}
@@ -414,11 +407,10 @@ function ViolationsPage() {
                       {/* Decline False Alert Button */}
                       <button
                         onClick={() => handleUpdateStatus(v.id, "declined")}
-                        className={`display-title inline-flex items-center justify-center gap-1 rounded px-2.5 py-1.5 text-[10px] font-semibold transition-colors cursor-pointer ${
-                          isDeclinedFalse
-                            ? "bg-muted text-foreground border border-border"
-                            : "bg-warning/20 text-warning hover:bg-warning hover:text-warning-foreground border border-warning/40"
-                        }`}
+                        className={`display-title inline-flex items-center justify-center gap-1 rounded px-2.5 py-1.5 text-[10px] font-semibold transition-colors cursor-pointer ${isDeclinedFalse
+                          ? "bg-muted text-foreground border border-border"
+                          : "bg-warning/20 text-warning hover:bg-warning hover:text-warning-foreground border border-warning/40"
+                          }`}
                         title="Decline as false alert — exclude from real violation statistics"
                       >
                         <XCircle className="size-3" /> {isDeclinedFalse ? "Declined" : "Decline Alert"}

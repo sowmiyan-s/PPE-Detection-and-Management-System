@@ -78,7 +78,7 @@ export type ViolationEvent = {
   missing: string[];
   confidence: number;
   timestamp: string;
-  status: "open" | "reviewed";
+  status: string;
   acknowledged: boolean;
   modelVersion: string;
   imagePath?: string;

@@ -142,7 +142,7 @@ class ThreadedCamera:
         self.cap: cv2.VideoCapture | None = None
         self.latest_frame: np.ndarray | None = None
         self.is_running: bool = False
-        self.is_synthetic: bool = False
+        self.is_offline: bool = False
         self.lock = threading.Lock()
         self.thread: threading.Thread | None = None
         self._frame_count: int = 0
@@ -158,13 +158,13 @@ class ThreadedCamera:
                 else:
                     self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.FRAME_WIDTH)
                     self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.FRAME_HEIGHT)
-            self.is_synthetic = False
+            self.is_offline = False
             log.info("ThreadedCamera opened real stream source: %s", source)
         else:
             self.cap = None
-            self.is_synthetic = True
-            self.latest_frame = self._draw_synthetic_frame()
-            log.warning("Camera source '%s' unavailable/offline. Initializing live synthetic demo fallback stream.", source)
+            self.is_offline = True
+            self.latest_frame = self._draw_offline_frame()
+            log.warning("Camera source '%s' unavailable/offline. Initializing offline fallback stream.", source)
 
         self.is_running = True
         self.thread = threading.Thread(target=self._reader_loop, daemon=True)
@@ -172,10 +172,10 @@ class ThreadedCamera:
 
     def _reader_loop(self) -> None:
         while self.is_running:
-            if not self.is_synthetic and self.cap is not None:
+            if not self.is_offline and self.cap is not None:
                 try:
                     if not self.cap.isOpened():
-                        self.is_synthetic = True
+                        self.is_offline = True
                         continue
                     ok, frame = self.cap.read()
                     if ok and frame is not None:
@@ -195,14 +195,14 @@ class ThreadedCamera:
                     log.debug("Threaded camera loop exception: %s", err)
                     time.sleep(0.02)
             else:
-                # Generate synthetic live stream frame
+                # Generate offline stream frame
                 self._frame_count += 1
-                synthetic_frame = self._draw_synthetic_frame()
+                offline_frame = self._draw_offline_frame()
                 with self.lock:
-                    self.latest_frame = synthetic_frame
+                    self.latest_frame = offline_frame
                 time.sleep(1.0 / max(5, config.TARGET_FPS))
 
-    def _draw_synthetic_frame(self) -> np.ndarray:
+    def _draw_offline_frame(self) -> np.ndarray:
         w, h = 1280, 720
         frame = np.zeros((h, w, 3), dtype=np.uint8)
         frame[:] = (20, 24, 32)
@@ -218,11 +218,11 @@ class ThreadedCamera:
         cv2.rectangle(frame, (0, 0), (w, 54), (15, 20, 28), -1)
         cv2.line(frame, (0, 54), (w, 54), (0, 165, 255), 2)
         
-        # Animated Live Indicator Dot
-        dot_color = (0, 220, 0) if (self._frame_count // 10) % 2 == 0 else (0, 100, 0)
+        # Animated Live Indicator Dot (Red for offline)
+        dot_color = (0, 0, 220) if (self._frame_count // 10) % 2 == 0 else (0, 0, 100)
         cv2.circle(frame, (35, 27), 7, dot_color, -1)
         
-        cv2.putText(frame, "EDGEVISION LIVE AI VISION STREAM", (55, 33), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2)
+        cv2.putText(frame, "EDGEVISION CAMERA OFFLINE", (55, 33), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2)
         
         # Live timestamp
         ts_str = time.strftime("%Y-%m-%d %H:%M:%S") + f".{(time.time() % 1):.2f}"[2:]
@@ -232,28 +232,17 @@ class ThreadedCamera:
         cv2.rectangle(frame, (35, 75), (w - 35, 120), (28, 34, 46), -1)
         cv2.rectangle(frame, (35, 75), (w - 35, 120), (55, 68, 90), 1)
         
-        source_label = "Demo Simulation Stream" if self.source in ("0", "demo") else f"Source '{self.source}' (Hardware/RTSP Offline)"
-        info_msg = f"CAMERA STATUS: {source_label}  |  ACTIVE ZONE: {_active_zone.upper()}  |  FPS: {_fps_stats.get('fps', 0.0):.1f}"
+        source_label = f"Source '{self.source}' (Hardware/RTSP Offline)"
+        info_msg = f"CAMERA STATUS: {source_label}  |  ACTIVE ZONE: {_active_zone.upper()}"
         cv2.putText(frame, info_msg, (50, 103), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (180, 205, 230), 1)
         
-        # Simulated worker figure moving smoothly across floor
-        t = (self._frame_count * 0.05) % (2 * np.pi)
-        worker_x = int(320 + 360 * (np.sin(t) + 1) / 2.0)
-        worker_y = 240
-        
-        # Draw worker figure with PPE gear
-        # Body / Vest (High-vis Orange)
-        cv2.rectangle(frame, (worker_x, worker_y + 80), (worker_x + 120, worker_y + 260), (0, 140, 255), -1)
-        cv2.line(frame, (worker_x + 10, worker_y + 130), (worker_x + 110, worker_y + 130), (220, 220, 220), 4)
-        cv2.line(frame, (worker_x + 10, worker_y + 200), (worker_x + 110, worker_y + 200), (220, 220, 220), 4)
-        # Legs / Pants
-        cv2.rectangle(frame, (worker_x + 10, worker_y + 260), (worker_x + 50, worker_y + 380), (70, 75, 85), -1)
-        cv2.rectangle(frame, (worker_x + 70, worker_y + 260), (worker_x + 110, worker_y + 380), (70, 75, 85), -1)
-        # Head / Face
-        cv2.circle(frame, (worker_x + 60, worker_y + 40), 30, (180, 160, 140), -1)
-        # Safety Helmet (Yellow)
-        cv2.ellipse(frame, (worker_x + 60, worker_y + 28), (38, 22), 0, 180, 360, (0, 215, 255), -1)
-        cv2.rectangle(frame, (worker_x + 15, worker_y + 26), (worker_x + 105, worker_y + 32), (0, 215, 255), -1)
+        # Offline Message
+        text = "CAMERA FEED UNAVAILABLE"
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        text_size = cv2.getTextSize(text, font, 1.5, 3)[0]
+        text_x = (w - text_size[0]) // 2
+        text_y = (h + text_size[1]) // 2
+        cv2.putText(frame, text, (text_x, text_y), font, 1.5, (0, 0, 255), 3)
         
         return frame
 
@@ -496,18 +485,6 @@ async def vision_loop() -> None:
             annotated, workers = await asyncio.get_event_loop().run_in_executor(
                 None, pipeline.process_frame, frame
             )
-            if getattr(camera, "is_synthetic", False) and not workers:
-                req_ppe = list(config.ZONE_RULES.get(_active_zone, {"Hard_hat", "Vest"}))
-                workers = [{
-                    "worker_id": "Worker-101 (Demo)",
-                    "zone": _active_zone,
-                    "detected_ppe": ["Hard_hat", "Vest"],
-                    "missing_ppe": [],
-                    "required_ppe": req_ppe,
-                    "compliant": True,
-                    "confidence": 0.96,
-                    "is_new_alert": False
-                }]
         except Exception as exc:
             log.error("Inference error: %s", exc)
             await asyncio.sleep(frame_interval)
