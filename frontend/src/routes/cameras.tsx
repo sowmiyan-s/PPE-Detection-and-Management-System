@@ -66,7 +66,7 @@ function CamerasPage() {
     ws.onmessage = (ev) => {
       try {
         const d = JSON.parse(ev.data);
-        if (["camera_added", "camera_switched", "camera_deleted", "camera_updated"].includes(d.type)) {
+        if (["camera_added", "camera_switched", "camera_deleted", "camera_updated", "settings_updated"].includes(d.type)) {
           invalidateSessionCache("/api/cameras");
           refetchCameras();
           manualRefetch(true);

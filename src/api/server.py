@@ -46,6 +46,7 @@ log = logging.getLogger(__name__)
 
 _active_cameras: dict = {}
 _latest_mjpeg_bytes: dict = {}
+_show_main_webcam: bool = True
 
 
 # ── WebSocket connection manager ───────────────────────────────────────────────
@@ -95,23 +96,26 @@ def open_camera_source(source: str) -> cv2.VideoCapture | None:
             except Exception as e:
                 log.warning("Failed to extract youtube stream: %s", e)
     elif src_str.lower().startswith(("rtsp://", "rtsps://", "http://", "https://")):
-        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|timeout;3000000"
-        for attempt in range(2):
-            try:
-                c = cv2.VideoCapture(src_str, cv2.CAP_FFMPEG)
-                if c and c.isOpened():
-                    ok, test_frame = c.read()
-                    if ok and test_frame is not None:
-                        log.info("Successfully opened RTSP stream (attempt %d): %s", attempt + 1, src_str)
-                        cap = c
-                        break
-                    else:
-                        c.release()
-            except Exception as err:
-                log.warning("FFmpeg RTSP attempt %d error for %s: %s", attempt + 1, src_str, err)
-            time.sleep(0.1)
+        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|stimeout;3000000|timeout;3000000"
+        try:
+            ff_params = []
+            if hasattr(cv2, "CAP_PROP_OPEN_TIMEOUT_MSEC"):
+                ff_params.extend([cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 3000])
+            if hasattr(cv2, "CAP_PROP_READ_TIMEOUT_MSEC"):
+                ff_params.extend([cv2.CAP_PROP_READ_TIMEOUT_MSEC, 3000])
 
-    if (cap is None or not cap.isOpened()) and not src_str.isdigit():
+            c = cv2.VideoCapture(src_str, cv2.CAP_FFMPEG, ff_params) if ff_params else cv2.VideoCapture(src_str, cv2.CAP_FFMPEG)
+            if c and c.isOpened():
+                ok, test_frame = c.read()
+                if ok and test_frame is not None:
+                    log.info("Successfully opened network stream: %s", src_str)
+                    cap = c
+                else:
+                    c.release()
+        except Exception as err:
+            log.warning("FFmpeg network stream connection error for %s: %s", src_str, err)
+
+    if (cap is None or not cap.isOpened()) and not src_str.isdigit() and not src_str.lower().startswith(("rtsp://", "rtsps://", "http://", "https://")):
         try:
             c = cv2.VideoCapture(src_str)
             if c and c.isOpened():
@@ -230,7 +234,7 @@ class ThreadedCamera:
         cv2.rectangle(frame, (35, 75), (w - 35, 120), (55, 68, 90), 1)
         
         source_label = f"Source '{self.source}' (Hardware/RTSP Offline)"
-        info_msg = f"CAMERA STATUS: {source_label}  |  ACTIVE ZONE: {_active_zone.upper()}"
+        info_msg = f"CAMERA STATUS: {source_label}  |  ACTIVE ZONE: {config.DEFAULT_ZONE.upper()}"
         cv2.putText(frame, info_msg, (50, 103), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (180, 205, 230), 1)
         
         # Offline Message
@@ -324,53 +328,48 @@ async def lifespan(app: FastAPI):
 
     try:
         try:
-            db_cameras = await asyncio.wait_for(db.get_cameras(), timeout=2.0)
+            db_cameras = await asyncio.wait_for(db.get_cameras(), timeout=3.0)
         except Exception as cam_err:
             log.warning("MongoDB camera query timeout/fallback: %s", cam_err)
             db_cameras = db._MEM_CAMERAS
 
-        # PROBE DEFAULT WEBCAM
+        # PROBE DEFAULT WEBCAM IF SETTING IS ENABLED
         default_cam_ok = False
-        import cv2
-        for backend in [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY]:
-            try:
-                probe_cap = cv2.VideoCapture(0, backend)
-                if probe_cap and probe_cap.isOpened():
-                    ok, _ = probe_cap.read()
-                    if ok:
-                        default_cam_ok = True
-                    probe_cap.release()
-                    if default_cam_ok:
-                        break
-            except Exception:
-                pass
+        if _show_main_webcam:
+            import cv2
+            for backend in [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY]:
+                try:
+                    probe_cap = cv2.VideoCapture(0, backend)
+                    if probe_cap and probe_cap.isOpened():
+                        ok, _ = probe_cap.read()
+                        if ok:
+                            default_cam_ok = True
+                        probe_cap.release()
+                        if default_cam_ok:
+                            break
+                except Exception:
+                    pass
 
-        if not default_cam_ok:
-            log.warning("Default webcam (source 0) is busy or unavailable. It will be skipped.")
+            if not default_cam_ok:
+                log.warning("Default webcam (source 0) is busy or unavailable. Skipping default webcam.")
+        else:
+            log.info("Main PC webcam disabled by user setting; skipping webcam probe.")
 
         for cam in db_cameras:
             cam_id = cam.get("id")
             source = str(cam.get("source") or cam.get("streamUrl") or config.DEFAULT_CAMERA_SOURCE)
             zone = cam.get("zone_id") or cam.get("zoneId") or config.DEFAULT_ZONE
+            is_active = int(cam.get("is_active", 1))
 
-            if source == "0" and not default_cam_ok:
-                log.info("Skipping busy default camera %s from DB", cam_id)
+            if not is_active:
+                log.info("Skipping inactive camera %s (source: %s)", cam_id, source)
                 continue
 
-            log.info("Starting pipeline for camera %s (source: %s, zone: %s)", cam_id, source, zone)
-            
-            _active_cameras[cam_id] = {
-                "pipeline": VisionPipeline(zone=zone),
-                "camera": ThreadedCamera(source),
-                "fps_stats": {"fps": 0.0, "frame_count": 0, "start_time": time.time()},
-                "frame_buffer": deque(maxlen=15),
-                "source": source,
-                "zone": zone,
-            }
-            
-            # Start parallel loop
-            task = asyncio.create_task(vision_loop(cam_id))
-            _active_cameras[cam_id]["task"] = task
+            if source == "0" and (not _show_main_webcam or not default_cam_ok):
+                log.info("Skipping default camera %s from DB (webcam unavailable or disabled by setting)", cam_id)
+                continue
+
+            start_camera_pipeline(cam_id, source, zone)
 
         asyncio.create_task(_evidence_worker())
         log.info("Vision pipelines & async evidence background worker started")
@@ -379,13 +378,8 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    for cam_id, c_data in _active_cameras.items():
-        if c_data.get("camera") and c_data["camera"].isOpened():
-            c_data["camera"].release()
-        if c_data.get("pipeline"):
-            c_data["pipeline"].release()
-        if "task" in c_data:
-            c_data["task"].cancel()
+    for cam_id in list(_active_cameras.keys()):
+        stop_camera_pipeline(cam_id)
 
 
 app = FastAPI(title="EdgeVision PPE Safety Server", lifespan=lifespan)
@@ -588,6 +582,53 @@ async def vision_loop(cam_id: str) -> None:
         await asyncio.sleep(max(0.0, frame_interval - (time.time() - loop_start)))
 
 
+def start_camera_pipeline(cam_id: str, source: str, zone: str = "general_plant") -> None:
+    """Start an independent parallel vision pipeline and threaded camera frame grabber for a camera."""
+    src_str = str(source).strip()
+    
+    # If webcam index 0 is disabled by user setting, skip it
+    if src_str == "0" and not _show_main_webcam:
+        log.info("Skipping webcam index 0 for camera %s (disabled by user setting)", cam_id)
+        return
+
+    # Release any existing pipeline instance for this camera first
+    stop_camera_pipeline(cam_id)
+
+    log.info("Starting parallel async pipeline for camera %s (source: %s, zone: %s)", cam_id, src_str, zone)
+    _active_cameras[cam_id] = {
+        "pipeline": VisionPipeline(zone=zone),
+        "camera": ThreadedCamera(src_str),
+        "fps_stats": {"fps": 0.0, "frame_count": 0, "start_time": time.time()},
+        "frame_buffer": deque(maxlen=15),
+        "source": src_str,
+        "zone": zone,
+    }
+    task = asyncio.create_task(vision_loop(cam_id))
+    _active_cameras[cam_id]["task"] = task
+
+
+def stop_camera_pipeline(cam_id: str) -> None:
+    """Stop vision loop task and release hardware/stream resources for a camera."""
+    if cam_id in _active_cameras:
+        c_data = _active_cameras.pop(cam_id)
+        if c_data.get("camera"):
+            try:
+                c_data["camera"].release()
+            except Exception:
+                pass
+        if c_data.get("pipeline"):
+            try:
+                c_data["pipeline"].release()
+            except Exception:
+                pass
+        if c_data.get("task"):
+            try:
+                c_data["task"].cancel()
+            except Exception:
+                pass
+    _latest_mjpeg_bytes.pop(cam_id, None)
+
+
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
 async def generate_mjpeg_stream(camera_id: str):
@@ -622,13 +663,15 @@ async def root_redirect():
 @app.get("/api/health")
 @app.get("/health")
 async def health():
+    online_cams = [c for c in _active_cameras.values() if c.get("camera") and c["camera"].isOpened()]
+    avg_fps = round(sum(c["fps_stats"]["fps"] for c in online_cams) / max(1, len(online_cams)), 1) if online_cams else 0.0
     return JSONResponse({
         "status": "ok",
-        "fps":    _fps_stats["fps"],
-        "zone":   _active_zone,
+        "fps": avg_fps,
+        "zone": config.DEFAULT_ZONE,
         "ws_connections": len(manager.active),
-        "camera_active": camera is not None and camera.isOpened() if camera else False,
-        "pipeline_active": pipeline is not None,
+        "camera_active": len(online_cams) > 0,
+        "pipeline_active": len(_active_cameras) > 0,
     })
 
 @app.get("/api/zones")
@@ -636,7 +679,7 @@ async def health():
 async def list_zones():
     db_zones = await db.get_zones()
     from src.core.rule_engine import RuleEngine
-    return JSONResponse({"zones": RuleEngine().list_zones(), "db_zones": db_zones, "active": _active_zone})
+    return JSONResponse({"zones": RuleEngine().list_zones(), "db_zones": db_zones, "active": config.DEFAULT_ZONE})
 
 @app.post("/api/zones")
 @app.post("/zones")
@@ -709,28 +752,6 @@ async def clear_all_violations_api():
     ok = await db.delete_all_violations()
     return JSONResponse({"success": ok})
 
-@app.delete("/api/cameras/{cam_id}")
-async def delete_camera_api(cam_id: str):
-    ok = await db.delete_camera(cam_id)
-    
-    # Broadcast deletion event to all connected clients
-    await manager.broadcast_json({
-        "type": "camera_deleted",
-        "id": cam_id
-    })
-
-    # If the active camera was deleted, switch to the next available camera if possible
-    if cam_id == _active_camera_id:
-        remaining = await db.get_cameras()
-        if remaining:
-            next_cam = remaining[0]["id"]
-            try:
-                await activate_camera_api(next_cam)
-            except Exception:
-                pass
-
-    return JSONResponse({"success": ok, "id": cam_id})
-
 @app.get("/api/workers")
 async def get_workers_api():
     return JSONResponse(await db.get_workers())
@@ -741,10 +762,12 @@ async def get_reports_api():
 
 @app.get("/api/stats")
 async def get_stats_api():
-    """Dashboard overview stats — live from DB."""
+    """Dashboard overview stats — live from DB and active parallel camera pipelines."""
     stats = await db.get_stats()
-    stats["current_fps"] = _fps_stats["fps"]
-    stats["active_zone"] = _active_zone
+    online_cams = [c for c in _active_cameras.values() if c.get("camera") and c["camera"].isOpened()]
+    avg_fps = round(sum(c["fps_stats"]["fps"] for c in online_cams) / max(1, len(online_cams)), 1) if online_cams else 0.0
+    stats["current_fps"] = avg_fps
+    stats["active_zone"] = config.DEFAULT_ZONE
     stats["ws_connections"] = len(manager.active)
     return JSONResponse(stats)
 
@@ -760,23 +783,69 @@ async def clear_cache_api():
     await mongo_cache.clear()
     return JSONResponse({"success": True, "message": "MongoDB query cache cleared."})
 
+@app.get("/api/settings")
+async def get_settings_api():
+    """Return runtime server configuration settings."""
+    return JSONResponse({
+        "show_main_webcam": _show_main_webcam
+    })
+
+@app.post("/api/settings")
+async def update_settings_api(body: dict):
+    """Update runtime settings, e.g. toggle main PC webcam display."""
+    global _show_main_webcam
+    if "show_main_webcam" in body:
+        new_val = bool(body["show_main_webcam"])
+        if new_val != _show_main_webcam:
+            _show_main_webcam = new_val
+            log.info("Updated show_main_webcam setting to: %s", _show_main_webcam)
+
+            if not _show_main_webcam:
+                # Stop any active camera pipeline using webcam 0
+                to_stop = [c_id for c_id, c_data in list(_active_cameras.items()) if c_data.get("source") == "0"]
+                for c_id in to_stop:
+                    stop_camera_pipeline(c_id)
+            else:
+                # Enable and start webcam 0 if available
+                db_cameras = await db.get_cameras()
+                for cam in db_cameras:
+                    src = str(cam.get("source") or cam.get("streamUrl") or "")
+                    if src == "0" and cam.get("id") not in _active_cameras:
+                        start_camera_pipeline(cam["id"], "0", cam.get("zone_id") or "general_plant")
+
+            await manager.broadcast_json({
+                "type": "settings_updated",
+                "show_main_webcam": _show_main_webcam
+            })
+
+    return JSONResponse({
+        "success": True,
+        "show_main_webcam": _show_main_webcam
+    })
+
 @app.get("/api/cameras")
 async def get_cameras_api():
-    """Return cameras from DB, enriched with live pipeline status."""
+    """Return cameras from DB, enriched with live parallel pipeline status."""
     db_cameras = await db.get_cameras()
     result = []
     for cam in db_cameras:
-        is_live = cam["id"] == _active_camera_id and camera is not None and camera.isOpened()
+        cam_id = cam["id"]
+        c_data = _active_cameras.get(cam_id)
+        is_live = c_data is not None and c_data.get("camera") is not None and c_data["camera"].isOpened()
         src = str(cam.get("source") or cam.get("streamUrl") or "0")
         cam_type = cam.get("type") or ("webcam" if src.isdigit() else "stream")
+        
+        actual_fps = round(c_data["fps_stats"]["fps"], 1) if (c_data and is_live) else 0.0
+        latency_ms = round(1000.0 / max(1, actual_fps), 1) if (c_data and is_live and actual_fps > 0) else 0.0
+
         result.append({
-            "id": cam["id"],
+            "id": cam_id,
             "name": cam["name"],
-            "zoneId": cam.get("zone_id") or (_active_zone if cam["id"] == _active_camera_id else "general_plant"),
-            "resolution": cam.get("resolution") or "1920×1080",
+            "zoneId": cam.get("zone_id") or cam.get("zoneId") or "general_plant",
+            "resolution": cam.get("resolution") or "1280x720",
             "targetFps": cam.get("target_fps") or config.TARGET_FPS,
-            "actualFps": round(_fps_stats["fps"], 1) if is_live else 0.0,
-            "latencyMs": round(1000.0 / max(1, _fps_stats["fps"]), 1) if is_live else 0.0,
+            "actualFps": actual_fps,
+            "latencyMs": latency_ms,
             "status": "online" if is_live else "offline",
             "streamUrl": src,
             "type": cam_type,
@@ -792,21 +861,7 @@ async def list_physical_cameras():
     available = []
     seen = set()
 
-    # If the currently active camera is a local webcam index, it's already running & active
-    if _active_source and _active_source.isdigit():
-        idx_str = str(_active_source)
-        available.append({
-            "id": idx_str,
-            "name": f"Webcam Index {idx_str} (Active Live Feed)",
-            "source": idx_str,
-            "resolution": f"{config.FRAME_WIDTH}x{config.FRAME_HEIGHT}",
-            "type": "webcam",
-            "is_active": True
-        })
-        seen.add(idx_str)
-
-    # Probe indices 0..9 for other hardware webcams
-    for i in range(10):
+    for i in range(5):
         idx_str = str(i)
         if idx_str in seen:
             continue
@@ -824,7 +879,7 @@ async def list_physical_cameras():
                     "source": idx_str,
                     "resolution": f"{w}x{h}",
                     "type": "webcam",
-                    "is_active": False
+                    "is_active": idx_str in [c_d.get("source") for c_d in _active_cameras.values()]
                 })
                 cap.release()
         except Exception as err:
@@ -837,7 +892,7 @@ async def list_physical_cameras():
             "source": "0",
             "resolution": "640x480",
             "type": "webcam",
-            "is_active": _active_source == "0"
+            "is_active": "0" in [c_d.get("source") for c_d in _active_cameras.values()]
         })
 
     return JSONResponse(available)
@@ -850,44 +905,48 @@ async def add_camera_api(body: CameraCreate):
     cam_dict["id"] = cam_id
     
     src = str(cam_dict.get("source") or cam_dict.get("streamUrl") or "0").strip()
+    zone = cam_dict.get("zoneId") or cam_dict.get("zone_id") or "general_plant"
     cam_dict["source"] = src
     cam_dict["streamUrl"] = src
+    cam_dict["zone_id"] = zone
     cam_dict["type"] = cam_dict.get("type") or ("webcam" if src.isdigit() else "stream")
+    cam_dict["is_active"] = 1
     
     ok = await db.save_camera(cam_dict)
     
-    # Automatically switch live vision pipeline feed to newly added camera
+    # Automatically start parallel vision pipeline for newly added camera
     try:
-        await activate_camera_api(cam_id)
+        start_camera_pipeline(cam_id, src, zone)
     except Exception as e:
-        log.warning("Auto-activation of new camera %s warning: %s", cam_id, e)
+        log.warning("Auto-start of new camera %s warning: %s", cam_id, e)
 
     # Broadcast real-time update event to all connected clients
     await manager.broadcast_json({
         "type": "camera_added",
         "id": cam_id,
-        "camera": cam_dict,
-        "activeCameraId": _active_camera_id
+        "camera": cam_dict
     })
 
-    return JSONResponse({"success": ok, "id": cam_id, "activeCameraId": _active_camera_id})
+    return JSONResponse({"success": ok, "id": cam_id})
 
 @app.put("/api/cameras/{cam_id}")
 @app.patch("/api/cameras/{cam_id}")
 async def update_camera_api(cam_id: str, body: dict):
-    """Update existing camera parameters and re-open live stream if active."""
+    """Update existing camera parameters and re-open live stream."""
     ok = await db.update_camera(cam_id, body)
     
     new_zone = body.get("zoneId") or body.get("zone_id") or body.get("zone")
-    if new_zone and cam_id in _active_cameras:
-        _active_cameras[cam_id]["zone"] = new_zone
-        _active_cameras[cam_id]["pipeline"].set_zone(new_zone)
-        
     new_source = body.get("source") or body.get("streamUrl")
-    if new_source and cam_id in _active_cameras:
-        _active_cameras[cam_id]["source"] = new_source
-        _active_cameras[cam_id]["camera"].release()
-        _active_cameras[cam_id]["camera"] = ThreadedCamera(new_source)
+
+    if cam_id in _active_cameras:
+        c_data = _active_cameras[cam_id]
+        cur_source = c_data.get("source")
+        cur_zone = c_data.get("zone")
+        
+        target_source = new_source or cur_source
+        target_zone = new_zone or cur_zone
+        
+        start_camera_pipeline(cam_id, target_source, target_zone)
 
     await manager.broadcast_json({
         "type": "camera_updated",
@@ -901,15 +960,7 @@ async def update_camera_api(cam_id: str, body: dict):
 async def delete_camera_api(cam_id: str):
     """Delete a camera from MongoDB and memory, and broadcast removal."""
     ok = await db.delete_camera(cam_id)
-    
-    if cam_id in _active_cameras:
-        c_data = _active_cameras.pop(cam_id)
-        if c_data.get("camera"):
-            c_data["camera"].release()
-        if c_data.get("pipeline"):
-            c_data["pipeline"].release()
-        if c_data.get("task"):
-            c_data["task"].cancel()
+    stop_camera_pipeline(cam_id)
 
     await manager.broadcast_json({
         "type": "camera_deleted",
@@ -1090,7 +1141,8 @@ async def export_excel_api(
 @app.get("/api/model-metrics")
 async def get_model_metrics():
     """Return model metrics — real FPS from pipeline, static accuracy from training evaluation, and Jetson hardware telemetry."""
-    current_fps = _fps_stats["fps"]
+    online_cams = [c for c in _active_cameras.values() if c.get("camera") and c["camera"].isOpened()]
+    current_fps = round(sum(c["fps_stats"]["fps"] for c in online_cams) / max(1, len(online_cams)), 1) if online_cams else 0.0
     p95_latency = round(1000.0 / max(1, current_fps) * 1.3, 1) if current_fps > 0 else 0.0
 
     precision_label = "FP16" if config.INFERENCE_HALF_PRECISION else "FP32"
@@ -1153,4 +1205,4 @@ async def websocket_endpoint(ws: WebSocket):
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    uvicorn.run("src.api.server:app", host=config.SERVER_HOST, port=config.SERVER_PORT, reload=False)
+    uvicorn.run("src.api.server:app", host=config.SERVER_HOST, port=config.SERVER_PORT, reload=True)

@@ -35,15 +35,22 @@ def get_db():
     global _client, _db
     if _db is None:
         try:
+            uri = config.MONGODB_URI
             kwargs = {
                 "serverSelectionTimeoutMS": 3000,
                 "connectTimeoutMS": 3000,
                 "socketTimeoutMS": 3000,
-                "tlsAllowInvalidCertificates": True,
             }
-            _client = AsyncIOMotorClient(config.MONGODB_URI, **kwargs)
+            if "mongodb+srv://" in uri or "tls=true" in uri.lower() or "ssl=true" in uri.lower():
+                kwargs.update({
+                    "tls": True,
+                    "tlsAllowInvalidCertificates": True,
+                    "tlsInsecure": True,
+                })
+
+            _client = AsyncIOMotorClient(uri, **kwargs)
             _db = _client[config.MONGODB_DB_NAME]
-            log.info(f"Connected to MongoDB at {config.MONGODB_URI}")
+            log.info(f"Connected to MongoDB at {uri}")
         except Exception as e:
             log.error(f"Failed to connect to MongoDB: {e}")
             raise
@@ -87,10 +94,7 @@ async def ensure_db():
             ]
             await db.cameras.insert_many(cameras)
 
-        log.info("Database collections & seed data verified.")
-    except Exception as e:
-        err_str = str(e).split("\n")[0][:120]
-        log.warning("MongoDB initialization info: %s (using memory fallback)", err_str)        # Seed roles if empty
+        # Seed roles if empty
         if await db.roles.count_documents({}) == 0:
             await db.roles.insert_many([
                 {"role_id": "ROLE-ADMIN", "name": "Safety Manager", "permissions": ["read", "write", "acknowledge", "delete"]},
@@ -117,7 +121,8 @@ async def ensure_db():
 
         log.info("MongoDB database initialized successfully with indexes.")
     except Exception as err:
-        log.warning("MongoDB initialization warning (will retry on demand): %s", err)
+        err_str = str(err).split("\n")[0][:120]
+        log.warning("MongoDB initialization info: %s (using local memory fallback)", err_str)
 
 SAMPLE_PROOF_SVG = (
     "data:image/svg+xml;utf8,"

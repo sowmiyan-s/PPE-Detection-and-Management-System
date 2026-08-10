@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useSessionFetch } from "@/hooks/use-session-fetch";
+import { useState, useEffect } from "react";
 import {
   Activity,
   Camera,
@@ -30,6 +31,26 @@ const nav = [
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { data: health } = useSessionFetch<any>("/api/health", null);
+  const { data: settingsData, refetch: refetchSettings } = useSessionFetch<any>("/api/settings", { show_main_webcam: true });
+  const [showWebcam, setShowWebcam] = useState<boolean>(true);
+
+  useEffect(() => {
+    if (settingsData && settingsData.show_main_webcam !== undefined) {
+      setShowWebcam(settingsData.show_main_webcam);
+    }
+  }, [settingsData]);
+
+  const toggleMainWebcam = () => {
+    const nextVal = !showWebcam;
+    setShowWebcam(nextVal);
+    fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ show_main_webcam: nextVal }),
+    })
+      .then(() => refetchSettings())
+      .catch((err) => console.error("Failed to update webcam setting", err));
+  };
 
   const isActive = health?.status === "ok";
   const pipelineStatus = health 
@@ -63,12 +84,29 @@ export function AppShell({ children }: { children: ReactNode }) {
           ))}
         </nav>
 
-        <div className="border-t border-sidebar-border p-3">
+        <div className="border-t border-sidebar-border p-3 space-y-2">
+          <div className="flex items-center justify-between gap-2 rounded bg-sidebar-accent/50 p-2 border border-sidebar-border/50">
+            <div className="flex items-center gap-1.5 text-[11px] font-medium text-sidebar-foreground">
+              <Camera className="size-3.5 text-primary" />
+              <span>Main PC Webcam</span>
+            </div>
+            <button
+              onClick={toggleMainWebcam}
+              title={showWebcam ? "Disable Main PC Webcam" : "Enable Main PC Webcam"}
+              className={`telemetry rounded px-2 py-0.5 text-[10px] font-bold transition-all ${
+                showWebcam
+                  ? "bg-success/20 text-success border border-success/30 hover:bg-success/30"
+                  : "bg-muted/30 text-muted-foreground border border-border hover:bg-muted/50"
+              }`}
+            >
+              {showWebcam ? "ON" : "OFF"}
+            </button>
+          </div>
           <div className="telemetry flex items-center gap-2 text-[11px] text-muted-foreground">
             <Gauge className={`size-3.5 ${isActive ? "text-success" : "text-muted-foreground"}`} />
             EDGE NODE · JETSON ORIN NX
           </div>
-          <div className="telemetry mt-1 text-[11px] text-muted-foreground">
+          <div className="telemetry text-[11px] text-muted-foreground">
             FP16 · SQLite
           </div>
         </div>
