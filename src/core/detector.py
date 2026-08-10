@@ -24,6 +24,10 @@ def _safe_torch_load(f, *args, **kwargs):
     return _orig_torch_load(f, *args, **kwargs)
 torch.load = _safe_torch_load
 
+if not torch.cuda.is_available():
+    num_cpus = os.cpu_count() or 4
+    torch.set_num_threads(max(1, num_cpus - 1))
+
 from ultralytics import YOLO
 
 from src.core import config

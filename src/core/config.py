@@ -25,24 +25,25 @@ FALLBACK_MODEL_PATH = "models/yolo11n.pt"
 DETECTION_CONF      = float(os.getenv("DETECTION_CONF", "0.20"))
 TRACKER_CONFIG      = "bytetrack.yaml"
 
-# Inference Optimization (Jetson / TensorRT / FP16 / Adaptive Hardware Profiles)
-INFERENCE_IMG_SIZE       = int(os.getenv("INFERENCE_IMG_SIZE", "640"))
-INFERENCE_HALF_PRECISION = os.getenv("INFERENCE_HALF_PRECISION", "true").lower() == "true"
-
 import torch
 PERFORMANCE_PROFILE = os.getenv("PERFORMANCE_PROFILE", "auto").lower()
 IS_GPU_AVAILABLE = torch.cuda.is_available()
 
+# Inference Optimization (Jetson / TensorRT / FP16 / Adaptive Hardware Profiles)
 if PERFORMANCE_PROFILE == "low_end" or (PERFORMANCE_PROFILE == "auto" and not IS_GPU_AVAILABLE):
     # Low-end system profile (8GB RAM / CPU-only laptop) - maximize responsiveness & zero camera lag
-    FRAME_SKIP_INTERVAL = int(os.getenv("FRAME_SKIP_INTERVAL", "1"))  # Run inference on alternating frames
-    STREAM_MAX_WIDTH    = int(os.getenv("STREAM_MAX_WIDTH", "854"))     # 480p preview stream
-    JPEG_QUALITY        = int(os.getenv("JPEG_QUALITY", "50"))
+    INFERENCE_IMG_SIZE       = int(os.getenv("INFERENCE_IMG_SIZE", "480"))
+    INFERENCE_HALF_PRECISION = os.getenv("INFERENCE_HALF_PRECISION", "false").lower() == "true"
+    FRAME_SKIP_INTERVAL      = int(os.getenv("FRAME_SKIP_INTERVAL", "1"))  # Run inference on alternating frames
+    STREAM_MAX_WIDTH         = int(os.getenv("STREAM_MAX_WIDTH", "854"))     # 480p preview stream
+    JPEG_QUALITY             = int(os.getenv("JPEG_QUALITY", "50"))
 else:
     # High-end system profile (Discrete GPU / Jetson Edge / Multi-Core)
-    FRAME_SKIP_INTERVAL = int(os.getenv("FRAME_SKIP_INTERVAL", "0"))  # Run inference every frame
-    STREAM_MAX_WIDTH    = int(os.getenv("STREAM_MAX_WIDTH", "1280"))
-    JPEG_QUALITY        = int(os.getenv("JPEG_QUALITY", "65"))
+    INFERENCE_IMG_SIZE       = int(os.getenv("INFERENCE_IMG_SIZE", "640"))
+    INFERENCE_HALF_PRECISION = os.getenv("INFERENCE_HALF_PRECISION", "true").lower() == "true"
+    FRAME_SKIP_INTERVAL      = int(os.getenv("FRAME_SKIP_INTERVAL", "0"))  # Run inference every frame
+    STREAM_MAX_WIDTH         = int(os.getenv("STREAM_MAX_WIDTH", "1280"))
+    JPEG_QUALITY             = int(os.getenv("JPEG_QUALITY", "65"))
 
 # ── PPE classes (must match model / data.yaml order) ─────────────────────────
 PPE_CLASSES = [
