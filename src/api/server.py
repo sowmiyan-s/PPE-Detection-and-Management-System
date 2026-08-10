@@ -396,7 +396,10 @@ async def vision_loop() -> None:
             await asyncio.sleep(frame_interval)
             continue
 
-        img_b64 = base64.b64encode(buf.tobytes()).decode("ascii")
+        raw_jpeg_bytes = buf.tobytes()
+        global _latest_mjpeg_bytes
+        _latest_mjpeg_bytes = raw_jpeg_bytes
+        img_b64 = base64.b64encode(raw_jpeg_bytes).decode("ascii")
 
         frame_buffer.append(annotated)
 
@@ -438,6 +441,30 @@ async def vision_loop() -> None:
 
         await asyncio.sleep(max(0.0, frame_interval - (time.time() - loop_start)))
 
+
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+
+_latest_mjpeg_bytes: bytes | None = None
+
+async def generate_mjpeg_stream():
+    """Generator streaming boundary-separated JPEG frames (MJPEG HTTP stream)."""
+    while True:
+        if _latest_mjpeg_bytes is not None:
+            yield (
+                b"--frame\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n" + _latest_mjpeg_bytes + b"\r\n"
+            )
+        await asyncio.sleep(0.04)
+
+@app.get("/api/stream")
+@app.get("/stream")
+async def mjpeg_stream_api():
+    """Live MJPEG video stream with bounding boxes and PPE annotations.
+    Viewable in VLC, Web Browsers, Chrome, Safari, mobile devices, and ngrok tunnels."""
+    return StreamingResponse(
+        generate_mjpeg_stream(),
+        media_type="multipart/x-mixed-replace; boundary=frame"
+    )
 
 # ── REST Endpoints ─────────────────────────────────────────────────────────────
 
