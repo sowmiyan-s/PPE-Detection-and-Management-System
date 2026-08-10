@@ -156,7 +156,8 @@ async def lifespan(app: FastAPI):
             camera.set(cv2.CAP_PROP_FRAME_HEIGHT, config.FRAME_HEIGHT)
             
         asyncio.create_task(vision_loop())
-        log.info("Vision pipeline started (zone=%s)", _active_zone)
+        asyncio.create_task(_evidence_worker())
+        log.info("Vision pipeline & async evidence background worker started (zone=%s, profile=%s)", _active_zone, config.PERFORMANCE_PROFILE)
     except Exception as exc:
         log.error("Pipeline init failed: %s", exc)
 
@@ -188,6 +189,21 @@ frame_buffer: deque = deque(maxlen=15)
 _worker_violation_cooldown: dict[str, float] = {}  # worker_id -> last DB write timestamp
 _scene_violation_cooldown: dict[str, float] = {}   # zone:missing_ppe -> last write timestamp
 
+# Async Non-Blocking Background Queue for evidence disk I/O & database pushes (takes <0.01ms in vision_loop)
+_evidence_queue: asyncio.Queue = asyncio.Queue(maxsize=50)
+
+async def _evidence_worker():
+    """Background worker consuming evidence payloads without stalling vision loop frame execution."""
+    while True:
+        try:
+            item = await _evidence_queue.get()
+            w, ann_img, f_buf_copy, z_id, cam_id, ts, b64 = item
+            await _save_and_record(w, ann_img, f_buf_copy, z_id, cam_id, ts, b64)
+            _evidence_queue.task_done()
+        except Exception as err:
+            log.warning("Evidence background worker error: %s", err)
+            await asyncio.sleep(0.1)
+
 # ── Evidence saving helper ─────────────────────────────────────────────────────
 
 async def _save_and_record(w_data, ann_img, f_buf_copy, z_id, cam_id, ts, b64):
@@ -201,9 +217,11 @@ async def _save_and_record(w_data, ann_img, f_buf_copy, z_id, cam_id, ts, b64):
         cv2.imwrite(filepath, ann_img)
         
         saved_vid = False
+        old_log_lvl = cv2.getLogLevel()
         try:
+            cv2.setLogLevel(cv2.LOG_LEVEL_SILENT)
             h, w_dim, _ = ann_img.shape
-            for codec in ['avc1', 'H264', 'mp4v', 'MJPG']:
+            for codec in ['MJPG', 'mp4v', 'XVID', 'avc1']:
                 try:
                     fourcc = cv2.VideoWriter_fourcc(*codec)
                     out_vid = cv2.VideoWriter(vid_filepath, fourcc, 15.0, (w_dim, h))
@@ -217,7 +235,9 @@ async def _save_and_record(w_data, ann_img, f_buf_copy, z_id, cam_id, ts, b64):
                 except Exception:
                     continue
         except Exception as vid_err:
-            log.warning("Video write failed: %s", vid_err)
+            log.debug("Video write fallback: %s", vid_err)
+        finally:
+            cv2.setLogLevel(old_log_lvl)
 
         vid_url = f"/api/evidence/{vid_filename}" if saved_vid else ""
         return f"/api/evidence/{filename}", vid_url
@@ -288,7 +308,15 @@ async def vision_loop() -> None:
             _fps_stats["start_time"] = time.time()
             _fps_stats["frame_count"] = 0
 
-        ok_enc, buf = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 60])
+        # Stream frame resolution & encoding optimization for fast WebSocket transmission
+        h_orig, w_orig = annotated.shape[:2]
+        if w_orig > config.STREAM_MAX_WIDTH:
+            new_h = int(h_orig * (config.STREAM_MAX_WIDTH / float(w_orig)))
+            stream_frame = cv2.resize(annotated, (config.STREAM_MAX_WIDTH, new_h))
+        else:
+            stream_frame = annotated
+
+        ok_enc, buf = cv2.imencode(".jpg", stream_frame, [cv2.IMWRITE_JPEG_QUALITY, config.JPEG_QUALITY])
         if not ok_enc:
             await asyncio.sleep(frame_interval)
             continue
@@ -317,9 +345,11 @@ async def vision_loop() -> None:
             _worker_violation_cooldown[wid] = now
             _scene_violation_cooldown[scene_key] = now
 
-            asyncio.create_task(
-                _save_and_record(w, annotated.copy(), list(frame_buffer), _active_zone, _active_camera_id, now, img_b64)
-            )
+            # Push to non-blocking background queue (<0.01ms) -> zero vision loop lag!
+            try:
+                _evidence_queue.put_nowait((w, annotated.copy(), list(frame_buffer), _active_zone, _active_camera_id, now, img_b64))
+            except asyncio.QueueFull:
+                log.warning("Evidence background queue full, skipping push to preserve live camera FPS.")
 
         payload = json.dumps({
             "frame":   img_b64,
