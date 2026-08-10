@@ -129,7 +129,7 @@ SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
 SERVER_PORT = int(os.getenv("SERVER_PORT", "8000"))
 
 # ── Camera ────────────────────────────────────────────────────────────────────
-DEFAULT_CAMERA_SOURCE = os.getenv("CAMERA_SOURCE", "rtsp://localhost:8554/cam")
+DEFAULT_CAMERA_SOURCE = os.getenv("CAMERA_SOURCE", "0")
 DEFAULT_CAMERA_INDEX  = DEFAULT_CAMERA_SOURCE
 FRAME_WIDTH          = int(os.getenv("FRAME_WIDTH", "1280"))
 FRAME_HEIGHT         = int(os.getenv("FRAME_HEIGHT", "720"))

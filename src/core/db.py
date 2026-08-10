@@ -74,14 +74,15 @@ async def ensure_db():
             cameras = [
                 {
                     "id": "CAM-01", 
-                    "name": "EdgeVision Live RTSP Stream", 
-                    "source": "rtsp://localhost:8554/cam", 
-                    "location": "Plant Area (Online RTSP Stream)",
+                    "name": "Local Webcam (Index 0)", 
+                    "source": "0", 
+                    "location": "Plant Area",
                     "zone_id": "general_plant",
                     "resolution": "1280x720",
                     "fps": 20,
                     "is_active": 1,
-                    "rtsp_url": "rtsp://localhost:8554/cam"
+                    "type": "webcam",
+                    "streamUrl": "0"
                 }
             ]
             await db.cameras.insert_many(cameras)
@@ -670,18 +671,11 @@ async def get_stats() -> dict[str, Any]:
 _MEM_CAMERAS: list[dict] = [
     {
         "id": "CAM-01",
-        "name": "EdgeVision Live RTSP Stream",
-        "source": "rtsp://localhost:8554/cam",
-        "location": "Plant Area (Online RTSP Stream)",
-        "is_active": 1,
-        "zone_id": "general_plant",
-        "target_fps": 20
-    },
-    {
-        "id": "CAM-02",
-        "name": "EdgeVision Secondary RTSP Feed",
-        "source": "rtsp://localhost:8554/cam",
-        "location": "Plant Entrance (RTSP Stream)",
+        "name": "Local Webcam",
+        "source": "0",
+        "streamUrl": "0",
+        "type": "webcam",
+        "location": "Plant Area",
         "is_active": 1,
         "zone_id": "general_plant",
         "target_fps": 20
