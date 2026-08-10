@@ -82,8 +82,8 @@ function Overview() {
     };
   }, []);
 
-  const stats = ctxStats || { cameras_online: 1, cameras_total: 1, active_violations: 0, violations_today: 0, workers_tracked: liveWorkers, daily_compliance: 100, current_fps: liveFps };
-  const reports = ctxReports;
+  const stats = ctxStats || null;
+  const reports = ctxReports || null;
   const violations = ctxViolations || [];
 
   const ticker: TickerItem[] = Array.isArray(violations)
@@ -103,26 +103,10 @@ function Overview() {
 
   return (
     <AppShell>
-      <div className="flex items-start justify-between">
-        <PageHeader
-          title="Control Room Overview"
-          subtitle="Edge inference pipeline status, compliance posture and live alert feed for all monitored zones."
-        />
-        <button
-          onClick={async () => {
-            try {
-              const res = await fetch('/api/test/seed', { method: 'POST' });
-              if (res.ok) alert('Test data seeded successfully!');
-              else alert('Failed to seed data. Did you restart the backend?');
-            } catch (e) {
-              alert('Error calling seed API. Ensure backend is running.');
-            }
-          }}
-          className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm hover:bg-primary/90 mt-2"
-        >
-          Add Sample Data
-        </button>
-      </div>
+      <PageHeader
+        title="Control Room Overview"
+        subtitle="Edge inference pipeline status, compliance posture and live alert feed for all monitored zones."
+      />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard

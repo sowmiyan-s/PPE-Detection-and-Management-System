@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useSessionFetch } from "@/hooks/use-session-fetch";
+import { useToast } from "@/lib/toast-context";
 import { useState, useEffect } from "react";
 import {
   Activity,
@@ -10,6 +11,7 @@ import {
   HardHat,
   History,
   LayoutDashboard,
+  Loader2,
   MonitorPlay,
   ShieldAlert,
   SlidersHorizontal,
@@ -32,7 +34,9 @@ const nav = [
 export function AppShell({ children }: { children: ReactNode }) {
   const { data: health } = useSessionFetch<any>("/api/health", null);
   const { data: settingsData, refetch: refetchSettings } = useSessionFetch<any>("/api/settings", { show_main_webcam: true });
+  const { showToast } = useToast();
   const [showWebcam, setShowWebcam] = useState<boolean>(true);
+  const [webcamLoading, setWebcamLoading] = useState<boolean>(false);
 
   useEffect(() => {
     if (settingsData && settingsData.show_main_webcam !== undefined) {
@@ -42,14 +46,22 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const toggleMainWebcam = () => {
     const nextVal = !showWebcam;
-    setShowWebcam(nextVal);
+    setWebcamLoading(true);
     fetch("/api/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ show_main_webcam: nextVal }),
     })
-      .then(() => refetchSettings())
-      .catch((err) => console.error("Failed to update webcam setting", err));
+      .then(() => {
+        setShowWebcam(nextVal);
+        refetchSettings();
+        showToast(nextVal ? "Main PC webcam enabled" : "Main PC webcam disabled");
+      })
+      .catch((err) => {
+        console.error("Failed to update webcam setting", err);
+        showToast("Failed to save webcam setting");
+      })
+      .finally(() => setWebcamLoading(false));
   };
 
   const isActive = health?.status === "ok";
@@ -92,13 +104,15 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
             <button
               onClick={toggleMainWebcam}
+              disabled={webcamLoading}
               title={showWebcam ? "Disable Main PC Webcam" : "Enable Main PC Webcam"}
-              className={`telemetry rounded px-2 py-0.5 text-[10px] font-bold transition-all ${
+              className={`telemetry flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-bold transition-all ${
                 showWebcam
                   ? "bg-success/20 text-success border border-success/30 hover:bg-success/30"
                   : "bg-muted/30 text-muted-foreground border border-border hover:bg-muted/50"
               }`}
             >
+              {webcamLoading ? <Loader2 className="size-3 animate-spin text-primary" /> : null}
               {showWebcam ? "ON" : "OFF"}
             </button>
           </div>

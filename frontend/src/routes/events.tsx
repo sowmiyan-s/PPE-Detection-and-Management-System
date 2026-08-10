@@ -1,9 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState, useEffect } from "react";
-import { Download, Search, Image as ImageIcon, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Download, Search, Image as ImageIcon, X, Loader2 } from "lucide-react";
 
 import { AppShell, PageHeader } from "@/components/app-shell";
-import { ppeLabel, formatTime, type ViolationEvent } from "@/lib/mock-data";
+import { formatTime, type ViolationEvent } from "@/lib/mock-data";
+import { useSessionFetch } from "@/hooks/use-session-fetch";
+import { useAppData } from "@/lib/data-context";
+import { useToast } from "@/lib/toast-context";
 
 export const Route = createFileRoute("/events")({
   head: () => ({
@@ -20,31 +23,31 @@ export const Route = createFileRoute("/events")({
 });
 
 export function EventsPage() {
+  const { violations: ctxViolations, loading: ctxLoading } = useAppData();
+  const { showToast } = useToast();
+  const [exporting, setExporting] = useState(false);
+  const { data: fetchList, loading: fetchLoading } = useSessionFetch<ViolationEvent[]>("/api/violations", []);
+
+  const eventList: ViolationEvent[] = ctxViolations.length > 0 ? ctxViolations : fetchList;
+  const loading = ctxLoading && fetchLoading && eventList.length === 0;
+
   const [q, setQ] = useState("");
-  const [type, setType] = useState("all");
-  const [zone, setZone] = useState("all");
-  const [eventList, setEventList] = useState<ViolationEvent[]>([]);
-  const [zoneList, setZoneList] = useState<{ id: string; name: string }[]>([]);
+  const [type, setType] = useState<string>("all");
+  const [zone, setZone] = useState<string>("all");
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    Promise.allSettled([
-      fetch("/api/violations").then((res) => (res.ok ? res.json() : [])),
-      fetch("/api/zones").then((res) => (res.ok ? res.json() : { db_zones: [] })),
-    ]).then(([violationsRes, zonesRes]) => {
-      if (violationsRes.status === "fulfilled" && Array.isArray(violationsRes.value)) {
-        setEventList(violationsRes.value);
-      }
-      if (zonesRes.status === "fulfilled") {
-        const data = zonesRes.value;
-        setZoneList(data.db_zones || []);
-      }
-      setLoading(false);
-    });
-  }, []);
+  const types = useMemo(
+    () => Array.from(new Set(eventList.map((v) => v.type))),
+    [eventList],
+  );
 
-  const types = useMemo(() => Array.from(new Set(eventList.map((v) => v.type).filter(Boolean))), [eventList]);
+  const zoneList = [
+    { id: "general_plant", name: "General Plant Floor" },
+    { id: "restricted_machinery", name: "Restricted Machinery Zone" },
+    { id: "hazardous_material", name: "Hazardous Chemical Area" },
+    { id: "ZONE-01", name: "Zone 01 — Assembly Floor" },
+    { id: "ZONE-02", name: "Zone 02 — High Elevation Site" },
+  ];
 
   const rows = useMemo(
     () =>
@@ -61,9 +64,12 @@ export function EventsPage() {
   );
 
   const handleExportCSV = () => {
+    setExporting(true);
     const params = new URLSearchParams();
     if (zone !== "all") params.set("zone_id", zone);
     window.location.href = `/api/export/csv?${params.toString()}`;
+    showToast("Audit CSV report downloaded successfully");
+    setTimeout(() => setExporting(false), 1000);
   };
 
   return (
@@ -74,9 +80,11 @@ export function EventsPage() {
         actions={
           <button
             onClick={handleExportCSV}
-            className="display-title inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-[11px] text-primary-foreground font-semibold hover:bg-primary/90 transition-colors shadow-sm cursor-pointer"
+            disabled={exporting}
+            className="display-title inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-[11px] text-primary-foreground font-semibold hover:bg-primary/90 transition-colors shadow-sm cursor-pointer disabled:opacity-50"
           >
-            <Download className="size-3.5" /> Export Audit CSV
+            {exporting ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+            {exporting ? "Exporting..." : "Export Audit CSV"}
           </button>
         }
       />

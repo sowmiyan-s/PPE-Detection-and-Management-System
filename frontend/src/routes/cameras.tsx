@@ -1,11 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
-import { Plus, Trash2, Edit2, X, Settings, Video, Globe, RefreshCw, Radio } from "lucide-react";
+import { Plus, Trash2, Edit2, X, Settings, Video, Globe, RefreshCw, Radio, Loader2 } from "lucide-react";
 
 import { AppShell, PageHeader, StatusDot } from "@/components/app-shell";
 import { type Camera } from "@/lib/mock-data";
 import { useSessionFetch, invalidateSessionCache } from "@/hooks/use-session-fetch";
 import { useAppData } from "@/lib/data-context";
+import { useToast } from "@/lib/toast-context";
 
 export const Route = createFileRoute("/cameras")({
   head: () => ({
@@ -31,8 +32,13 @@ const DEFAULT_ZONES = [
 
 function CamerasPage() {
   const { cameras: ctxCameras, zones: ctxZones, refetchCameras } = useAppData();
+  const { showToast } = useToast();
   const [showForm, setShowForm] = useState(false);
   const [editingCamera, setEditingCamera] = useState<Camera | null>(null);
+
+  const [submittingAdd, setSubmittingAdd] = useState(false);
+  const [submittingEdit, setSubmittingEdit] = useState(false);
+  const [loadingCamId, setLoadingCamId] = useState<string | null>(null);
 
   const { data: fetchList, loading: fetchLoading, refetch: manualRefetch } = useSessionFetch<Camera[]>("/api/cameras", []);
   const { data: zoneData } = useSessionFetch<any>("/api/zones", { zones: [], db_zones: [] });
@@ -101,6 +107,7 @@ function CamerasPage() {
     e.preventDefault();
     if (!formName.trim()) return;
 
+    setSubmittingAdd(true);
     const newCam = {
       name: formName.trim(),
       source: formUrl.trim() || "0",
@@ -119,13 +126,17 @@ function CamerasPage() {
         invalidateSessionCache("/api/cameras");
         refetchCameras();
         manualRefetch(true);
+        setShowForm(false);
+        setFormName("Local Webcam (Index 0)");
+        setFormUrl("0");
+        setFormFps("20");
+        showToast("Camera registered successfully");
       })
-      .catch((err) => console.error("Failed to add camera", err));
-
-    setShowForm(false);
-    setFormName("Local Webcam (Index 0)");
-    setFormUrl("0");
-    setFormFps("20");
+      .catch((err) => {
+        console.error("Failed to add camera", err);
+        showToast("Failed to register camera");
+      })
+      .finally(() => setSubmittingAdd(false));
   };
 
   const openEditModal = (cam: Camera) => {
@@ -140,6 +151,7 @@ function CamerasPage() {
     e.preventDefault();
     if (!editingCamera || !editName.trim()) return;
 
+    setSubmittingEdit(true);
     const updated = {
       name: editName.trim(),
       source: editSource.trim() || "0",
@@ -158,29 +170,46 @@ function CamerasPage() {
         refetchCameras();
         manualRefetch(true);
         setEditingCamera(null);
+        showToast("Camera configuration updated successfully");
       })
-      .catch((err) => console.error("Failed to update camera", err));
+      .catch((err) => {
+        console.error("Failed to update camera", err);
+        showToast("Failed to update camera");
+      })
+      .finally(() => setSubmittingEdit(false));
   };
 
   const handleActivate = (camId: string) => {
+    setLoadingCamId(camId);
     fetch(`/api/cameras/${camId}/activate`, { method: "POST" })
       .then(() => {
         invalidateSessionCache("/api/cameras");
         refetchCameras();
         manualRefetch(true);
+        showToast("Camera stream activated successfully");
       })
-      .catch((err) => console.error("Failed to activate camera", err));
+      .catch((err) => {
+        console.error("Failed to activate camera", err);
+        showToast("Failed to activate camera");
+      })
+      .finally(() => setLoadingCamId(null));
   };
 
   const handleDeleteCamera = (camId: string) => {
     if (confirm("Are you sure you want to delete this camera from the MongoDB cluster?")) {
+      setLoadingCamId(camId);
       fetch(`/api/cameras/${camId}`, { method: "DELETE" })
         .then(() => {
           invalidateSessionCache("/api/cameras");
           refetchCameras();
           manualRefetch(true);
+          showToast("Camera deleted successfully");
         })
-        .catch((err) => console.error("Failed to delete camera", err));
+        .catch((err) => {
+          console.error("Failed to delete camera", err);
+          showToast("Failed to delete camera");
+        })
+        .finally(() => setLoadingCamId(null));
     }
   };
 
@@ -255,9 +284,11 @@ function CamerasPage() {
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 rounded bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors"
+                disabled={submittingEdit}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50"
               >
-                Save Camera Config
+                {submittingEdit ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                {submittingEdit ? "Saving..." : "Save Camera Config"}
               </button>
             </div>
           </form>
@@ -346,9 +377,11 @@ function CamerasPage() {
             </span>
             <button
               type="submit"
-              className="display-title rounded bg-primary px-4 py-2 text-[11px] text-primary-foreground font-semibold hover:bg-primary/90 transition-colors"
+              disabled={submittingAdd}
+              className="display-title inline-flex items-center gap-1.5 rounded bg-primary px-4 py-2 text-[11px] text-primary-foreground font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50"
             >
-              Add Camera & Connect Stream
+              {submittingAdd ? <Loader2 className="size-3.5 animate-spin" /> : null}
+              {submittingAdd ? "Connecting..." : "Add Camera & Connect Stream"}
             </button>
           </div>
         </form>
@@ -428,8 +461,10 @@ function CamerasPage() {
                       {c.status !== "online" && (
                         <button
                           onClick={() => handleActivate(c.id)}
-                          className="display-title rounded border border-primary/20 bg-primary/10 px-2 py-1 text-[10px] text-primary hover:bg-primary hover:text-primary-foreground transition-colors"
+                          disabled={loadingCamId === c.id}
+                          className="display-title inline-flex items-center gap-1 rounded border border-primary/20 bg-primary/10 px-2 py-1 text-[10px] text-primary hover:bg-primary hover:text-primary-foreground transition-colors disabled:opacity-50"
                         >
+                          {loadingCamId === c.id ? <Loader2 className="size-3 animate-spin" /> : null}
                           Set Active
                         </button>
                       )}
@@ -442,10 +477,11 @@ function CamerasPage() {
                       </button>
                       <button
                         onClick={() => handleDeleteCamera(c.id)}
+                        disabled={loadingCamId === c.id}
                         title="Delete Camera"
-                        className="rounded border border-destructive/30 bg-destructive/10 p-1 text-destructive hover:bg-destructive hover:text-destructive-foreground transition-colors"
+                        className="rounded border border-destructive/30 bg-destructive/10 p-1 text-destructive hover:bg-destructive hover:text-destructive-foreground transition-colors disabled:opacity-50"
                       >
-                        <Trash2 className="size-3.5" />
+                        {loadingCamId === c.id ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
                       </button>
                     </td>
                   </tr>

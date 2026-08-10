@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useEffect, useMemo } from "react";
-import { Plus, X, ShieldAlert } from "lucide-react";
+import { Plus, X, ShieldAlert, Loader2 } from "lucide-react";
 
 import { AppShell, PageHeader } from "@/components/app-shell";
 import { PPE_LABELS, type PpeKey, type Zone } from "@/lib/mock-data";
 import { useSessionFetch, invalidateSessionCache } from "@/hooks/use-session-fetch";
+import { useToast } from "@/lib/toast-context";
 
 export const Route = createFileRoute("/zones")({
   head: () => ({
@@ -31,11 +32,9 @@ const CONFIGURABLE_PPE: PpeKey[] = [
   "goggles",
   "ear-mufs",
   "face-guard",
-  "safety-suit",
-  "safety_belt",
+  "harness",
   "lanyard",
   "hook",
-  "anchor_point",
 ];
 
 const defaultRequired: Record<PpeKey, boolean> = {
@@ -46,7 +45,7 @@ const defaultRequired: Record<PpeKey, boolean> = {
   person: false,
   gloves: false,
   "no-gloves": false,
-  boots: true,
+  boots: false,
   "no-boots": false,
   goggles: false,
   "no-goggles": false,
@@ -54,6 +53,7 @@ const defaultRequired: Record<PpeKey, boolean> = {
   "face-guard": false,
   "safety-suit": false,
   safety_belt: false,
+  harness: false,
   lanyard: false,
   hook: false,
   anchor_point: false,
@@ -79,7 +79,10 @@ function apiZoneToLocal(apiZone: any): Zone {
 }
 
 function ZonesPage() {
+  const { showToast } = useToast();
   const [showAddModal, setShowAddModal] = useState(false);
+  const [savingZoneId, setSavingZoneId] = useState<string | null>(null);
+  const [submittingAddZone, setSubmittingAddZone] = useState(false);
   const { data: apiData, loading, refetch: fetchZones } = useSessionFetch<any>("/api/zones", { zones: [], db_zones: [] });
 
   const initialConfig = useMemo<Zone[]>(() => {
@@ -112,22 +115,6 @@ function ZonesPage() {
     setZones((prev) => {
       const base = prev.length > 0 ? prev : initialConfig;
       const updated = base.map((z) => (z.id === id ? { ...z, ...patch } : z));
-      const targetZone = updated.find((z) => z.id === id);
-      if (targetZone) {
-        const requiredPpe = CONFIGURABLE_PPE.filter((k) => targetZone.required[k]);
-        fetch("/api/zones", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            id: targetZone.id,
-            name: targetZone.name,
-            description: targetZone.kind,
-            required_ppe: requiredPpe,
-          }),
-        })
-          .then(() => invalidateSessionCache("/api/zones"))
-          .catch((err) => console.error("Failed to sync zone update to backend", err));
-      }
       return updated;
     });
   };
@@ -136,6 +123,7 @@ function ZonesPage() {
     e.preventDefault();
     if (!newZoneName.trim()) return;
 
+    setSubmittingAddZone(true);
     const newZone: Zone = {
       id: `ZONE-0${config.length + 1}`,
       name: newZoneName.trim(),
@@ -147,15 +135,9 @@ function ZonesPage() {
     };
 
     setZones((prev) => [...(prev.length > 0 ? prev : initialConfig), newZone]);
-    setShowAddModal(false);
-
-    // Reset Form
-    setNewZoneName("");
-    setNewRequired({ ...defaultRequired });
 
     const requiredPpe = CONFIGURABLE_PPE.filter((k) => newZone.required[k]);
 
-    // Notify Backend API
     fetch("/api/zones", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -169,13 +151,20 @@ function ZonesPage() {
       .then(() => {
         invalidateSessionCache("/api/zones");
         fetchZones(true);
+        setShowAddModal(false);
+        setNewZoneName("");
+        setNewRequired({ ...defaultRequired });
+        showToast("New safety zone created successfully");
       })
-      .catch((err) => console.error("Failed to sync new zone to backend", err));
+      .catch((err) => {
+        console.error("Failed to sync new zone to backend", err);
+        showToast("Failed to create safety zone");
+      })
+      .finally(() => setSubmittingAddZone(false));
   };
 
-  const [savedZoneId, setSavedZoneId] = useState<string | null>(null);
-
   const handleSaveZone = (targetZone: Zone) => {
+    setSavingZoneId(targetZone.id);
     const requiredPpe = CONFIGURABLE_PPE.filter((k) => targetZone.required[k]);
     fetch("/api/zones", {
       method: "POST",
@@ -190,10 +179,13 @@ function ZonesPage() {
       .then(() => {
         invalidateSessionCache("/api/zones");
         fetchZones(true);
-        setSavedZoneId(targetZone.id);
-        setTimeout(() => setSavedZoneId(null), 3500);
+        showToast("Zone safety rules saved successfully");
       })
-      .catch((err) => console.error("Failed to save zone settings", err));
+      .catch((err) => {
+        console.error("Failed to save zone settings", err);
+        showToast("Failed to save zone settings");
+      })
+      .finally(() => setSavingZoneId(null));
   };
 
   return (
@@ -312,10 +304,12 @@ function ZonesPage() {
                 <div className="mt-4 flex items-center justify-end border-t border-border pt-3">
                   <button
                     type="button"
+                    disabled={savingZoneId === z.id}
                     onClick={() => handleSaveZone(z)}
-                    className="flex items-center gap-1.5 rounded bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm"
+                    className="flex items-center gap-1.5 rounded bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm disabled:opacity-50"
                   >
-                    <span>Save Zone Settings</span>
+                    {savingZoneId === z.id ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                    <span>{savingZoneId === z.id ? "Saving..." : "Save Zone Settings"}</span>
                   </button>
                 </div>
               </div>
@@ -337,7 +331,7 @@ function ZonesPage() {
                 onClick={() => setShowAddModal(false)}
                 className="rounded p-1 text-muted-foreground hover:text-foreground"
               >
-                <X className="size-4" />
+                <X className="size-5" />
               </button>
             </div>
 
@@ -425,9 +419,11 @@ function ZonesPage() {
                 </button>
                 <button
                   type="submit"
-                  className="rounded bg-primary px-4 py-2 text-xs text-primary-foreground hover:bg-primary/90"
+                  disabled={submittingAddZone}
+                  className="flex items-center gap-1.5 rounded bg-primary px-4 py-2 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                 >
-                  Save Safety Zone
+                  {submittingAddZone ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                  <span>{submittingAddZone ? "Saving..." : "Save Safety Zone"}</span>
                 </button>
               </div>
             </form>

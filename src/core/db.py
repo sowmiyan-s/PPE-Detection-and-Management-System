@@ -154,28 +154,26 @@ async def record_violation(
 ) -> str:
     """Record a violation event with image/video evidence directly in MongoDB.
     Deduplicates active unacknowledged violations per worker ID to prevent duplicate reports."""
-    # Deduplication Guard: Check if an unacknowledged violation already exists for this worker ID or recent same-zone event
+    # Deduplication Guard: Check if a duplicate violation event occurred for this worker in the same zone within cooldown window
     now_ts = datetime.utcnow()
+    cooldown_dt = now_ts - timedelta(seconds=getattr(config, "VIOLATION_COOLDOWN_SECS", 5.0))
+
     for v in _MEM_VIOLATIONS:
-        if v.get("worker_track_id") == worker_id and v.get("acknowledgement_status") != "reviewed":
-            log.info("Skipping duplicate violation record for worker %s (existing active event: %s)", worker_id, v["id"])
-            return v["id"]
         v_ts = v.get("timestamp")
-        if isinstance(v_ts, datetime) and (now_ts - v_ts).total_seconds() < 15.0:
-            if v.get("zone_id") == zone_id and set(v.get("missing_ppe", [])) == set(missing_ppe):
-                log.info("Skipping duplicate violation record for zone %s (recent event: %s)", zone_id, v["id"])
+        if isinstance(v_ts, datetime) and v_ts >= cooldown_dt:
+            if v.get("worker_track_id") == worker_id and set(v.get("missing_ppe", [])) == set(missing_ppe):
+                log.info("Skipping duplicate violation within cooldown window for worker %s", worker_id)
                 return v["id"]
 
     try:
         database = get_db()
         existing_doc = await database.violation_events.find_one({
-            "$or": [
-                {"worker_track_id": worker_id, "acknowledgement_status": {"$ne": "reviewed"}},
-                {"zone_id": zone_id, "missing_ppe": missing_ppe, "timestamp": {"$gte": now_ts - timedelta(seconds=15)}}
-            ]
+            "worker_track_id": worker_id,
+            "missing_ppe": list(missing_ppe),
+            "timestamp": {"$gte": cooldown_dt}
         })
         if existing_doc:
-            log.info("Skipping duplicate DB record for zone %s (active event: %s)", zone_id, existing_doc["id"])
+            log.info("Skipping duplicate DB record within cooldown window for worker %s", worker_id)
             return existing_doc["id"]
     except Exception:
         pass
