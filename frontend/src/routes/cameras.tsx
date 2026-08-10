@@ -31,7 +31,7 @@ const DEFAULT_ZONES = [
 ];
 
 function CamerasPage() {
-  const { cameras: ctxCameras, zones: ctxZones, refetchCameras } = useAppData();
+  const { cameras: ctxCameras, zones: ctxZones, refetchCameras, refetchAll } = useAppData();
   const { showToast } = useToast();
   const [showForm, setShowForm] = useState(false);
   const [editingCamera, setEditingCamera] = useState<Camera | null>(null);
@@ -44,7 +44,7 @@ function CamerasPage() {
   const { data: zoneData } = useSessionFetch<any>("/api/zones", { zones: [], db_zones: [] });
   const { data: physicalCams, refetch: refetchDevices } = useSessionFetch<{ id: string; name: string; source: string }[]>("/api/devices/cameras", []);
 
-  const cameraList = ctxCameras.length > 0 ? ctxCameras : fetchList;
+  const cameraList = fetchList.length > 0 ? fetchList : (ctxCameras.length > 0 ? ctxCameras : []);
   const loading = fetchLoading && cameraList.length === 0;
 
   const rawZones = ctxZones.length > 0 ? ctxZones : (zoneData?.zones?.length > 0 ? zoneData.zones : zoneData?.db_zones);
@@ -75,6 +75,7 @@ function CamerasPage() {
         if (["camera_added", "camera_switched", "camera_deleted", "camera_updated", "settings_updated"].includes(d.type)) {
           invalidateSessionCache("/api/cameras");
           refetchCameras();
+          refetchAll();
           manualRefetch(true);
         }
       } catch {}
@@ -83,7 +84,7 @@ function CamerasPage() {
     return () => {
       ws.close();
     };
-  }, [refetchCameras, manualRefetch]);
+  }, [refetchCameras, refetchAll, manualRefetch]);
 
   useEffect(() => {
     if (physicalCams.length > 0 && formUrl === "0" && physicalCams[0]?.id) {
@@ -122,9 +123,11 @@ function CamerasPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(newCam),
     })
-      .then(() => {
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to add camera");
         invalidateSessionCache("/api/cameras");
         refetchCameras();
+        refetchAll();
         manualRefetch(true);
         setShowForm(false);
         setFormName("Local Webcam (Index 0)");
@@ -165,9 +168,11 @@ function CamerasPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updated),
     })
-      .then(() => {
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to update camera");
         invalidateSessionCache("/api/cameras");
         refetchCameras();
+        refetchAll();
         manualRefetch(true);
         setEditingCamera(null);
         showToast("Camera configuration updated successfully");
@@ -182,9 +187,11 @@ function CamerasPage() {
   const handleActivate = (camId: string) => {
     setLoadingCamId(camId);
     fetch(`/api/cameras/${camId}/activate`, { method: "POST" })
-      .then(() => {
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to activate camera");
         invalidateSessionCache("/api/cameras");
         refetchCameras();
+        refetchAll();
         manualRefetch(true);
         showToast("Camera stream activated successfully");
       })
@@ -199,9 +206,11 @@ function CamerasPage() {
     if (confirm("Are you sure you want to delete this camera from the MongoDB cluster?")) {
       setLoadingCamId(camId);
       fetch(`/api/cameras/${camId}`, { method: "DELETE" })
-        .then(() => {
+        .then((res) => {
+          if (!res.ok) throw new Error("Failed to delete camera");
           invalidateSessionCache("/api/cameras");
           refetchCameras();
+          refetchAll();
           manualRefetch(true);
           showToast("Camera deleted successfully");
         })
@@ -465,7 +474,7 @@ function CamerasPage() {
                           className="display-title inline-flex items-center gap-1 rounded border border-primary/20 bg-primary/10 px-2 py-1 text-[10px] text-primary hover:bg-primary hover:text-primary-foreground transition-colors disabled:opacity-50"
                         >
                           {loadingCamId === c.id ? <Loader2 className="size-3 animate-spin" /> : null}
-                          Set Active
+                          Reconnect Feed
                         </button>
                       )}
                       <button

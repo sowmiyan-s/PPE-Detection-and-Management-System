@@ -1,4 +1,4 @@
-# Python
+# Python & Environments
 __pycache__/
 *.py[cod]
 *.pyo
@@ -9,48 +9,38 @@ build/
 .env
 .venv/
 venv/
+env/
 
-# Model training outputs (large files)
+# Model outputs & Cache (Ignore TensorRT engines & temp training runs)
 ppe_training/
 runs/
 *.engine
 *.onnx
+.pytest_cache/
+.benchmarks/
 
-# Replit internals
+# Explicitly KEEP models tracked in Git per project requirement
+!models/
+!models/*.pt
+
+# Database evidence & sensitive files
+database/evidence/*
+!database/evidence/.gitkeep
+cookies.txt
+*.log
+
+# Frontend & Node dependencies
+node_modules/
+frontend/node_modules/
+frontend/.output/
+frontend/.wrangler/
+frontend/.nitro/
+frontend/dist/
+
+# OS & Replit
+.DS_Store
+Thumbs.db
 .replit
 .pythonlibs/
 .cache/
 .local/
-.agents/
-
-# Attached assets / temp files
-attached_assets/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
-
-# Dataset images and directories
-datasets/
-dataset/
-datasets/ppe_dataset/images/
-
-# Database files
-database/*.db
-database/*.db-journal
-database/edgevision.db
-database/edgevision.db-journal
-database/evidence/
-
-# Node
-node_modules/
-
-# Models
-
-
-# Testing and benchmarks
-.pytest_cache/
-.benchmarks/

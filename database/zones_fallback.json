@@ -1,0 +1,50 @@
+[
+  {
+    "id": "ZONE-02",
+    "name": "construction",
+    "description": "Active construction \u2013 helmet, vest, boots required",
+    "required_ppe": [
+      "helmet",
+      "vest",
+      "boots"
+    ]
+  },
+  {
+    "id": "ZONE-03",
+    "name": "work_at_height",
+    "description": "Elevated work area \u2013 full harness system required",
+    "required_ppe": [
+      "helmet",
+      "vest",
+      "boots",
+      "safety_belt",
+      "hook"
+    ]
+  },
+  {
+    "id": "ZONE-01",
+    "name": "general_plant",
+    "description": "General plant area \u2013 helmet and vest required",
+    "required_ppe": [
+      "helmet",
+      "vest"
+    ]
+  },
+  {
+    "id": "ZONE-04",
+    "name": "restricted_machinery",
+    "description": "Restricted machinery area \u2013 authorised personnel only",
+    "required_ppe": [
+      "helmet",
+      "vest"
+    ]
+  },
+  {
+    "id": "ZONE-AE01",
+    "name": "Test Zone",
+    "description": "Custom Zone",
+    "required_ppe": [
+      "helmet"
+    ]
+  }
+]

@@ -219,7 +219,7 @@ function LivePage() {
 
                       {isSelected && (
                         <div className="absolute top-2 right-2 rounded bg-primary px-2 py-0.5 text-[10px] font-bold text-primary-foreground uppercase tracking-wider">
-                          Active Stream
+                          Focused Feed
                         </div>
                       )}
                     </div>
@@ -251,7 +251,7 @@ function LivePage() {
                             onClick={() => handleActivateCam(cam.id)}
                             className="w-full flex items-center justify-center gap-1.5 rounded bg-primary/10 border border-primary/30 px-3 py-1.5 text-xs text-primary font-medium hover:bg-primary hover:text-primary-foreground transition-colors"
                           >
-                            <Play className="size-3.5" /> Set Active Stream
+                            <Play className="size-3.5" /> View Focus Feed
                           </button>
                         ) : (
                           <button

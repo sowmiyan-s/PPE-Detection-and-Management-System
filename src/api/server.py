@@ -80,21 +80,56 @@ def open_camera_source(source: str) -> cv2.VideoCapture | None:
         except Exception as e:
             log.warning("Failed to open local video file %s: %s", src_str, e)
     elif "youtube.com" in src_str or "youtu.be" in src_str:
+        # Fast direct extraction via yt_dlp without terminal log noise
         try:
-            from cap_from_youtube import cap_from_youtube
-            cap = cap_from_youtube(src_str, "720p")
-        except Exception:
-            pass
+            import yt_dlp
+            cookie_paths = [
+                os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "cookies.txt"),
+                os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "database", "cookies.txt"),
+                "cookies.txt"
+            ]
+            cookie_file = next((p for p in cookie_paths if os.path.isfile(p)), None)
+
+            ydl_opts = {
+                "format": "best[height<=720][ext=mp4]/best[ext=mp4]/best",
+                "quiet": True,
+                "no_warnings": True,
+                "nocheckcertificate": True,
+                "extractor_args": {
+                    "youtube": {
+                        "player_client": ["android", "ios", "mweb"]
+                    }
+                }
+            }
+            if cookie_file:
+                ydl_opts["cookiefile"] = cookie_file
+
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(src_str, download=False)
+                url = info.get("url")
+                if not url and info.get("formats"):
+                    # Find highest format under 720p or fallback to last
+                    fmt = next((f for f in reversed(info["formats"]) if f.get("url") and f.get("height", 0) <= 720), info["formats"][-1])
+                    url = fmt.get("url")
+                if url:
+                    c = cv2.VideoCapture(url)
+                    if c and c.isOpened():
+                        ok, test_frame = c.read()
+                        if ok and test_frame is not None:
+                            log.info("Successfully opened YouTube stream URL: %s", src_str)
+                            cap = c
+        except Exception as e:
+            log.warning("yt_dlp extraction warning for %s: %s", src_str, e)
+
+        # Fallback to cap_from_youtube if direct extraction fails
         if cap is None or not cap.isOpened():
             try:
-                import yt_dlp
-                ydl_opts = {"format": "best[ext=mp4]", "quiet": True}
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(src_str, download=False)
-                    url = info.get("url", src_str)
-                cap = cv2.VideoCapture(url)
-            except Exception as e:
-                log.warning("Failed to extract youtube stream: %s", e)
+                from cap_from_youtube import cap_from_youtube
+                c = cap_from_youtube(src_str, "720p")
+                if c and c.isOpened():
+                    cap = c
+            except Exception as err:
+                log.warning("cap_from_youtube fallback warning: %s", err)
     elif src_str.lower().startswith(("rtsp://", "rtsps://", "http://", "https://")):
         os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|stimeout;3000000|timeout;3000000"
         try:
@@ -184,11 +219,27 @@ class ThreadedCamera:
                             self.latest_frame = frame
                     else:
                         src_str = str(self.source).lower()
-                        if not src_str.isdigit() and not src_str.startswith(("rtsp://", "rtsps://", "http://", "https://")):
+                        is_yt = "youtube.com" in src_str or "youtu.be" in src_str
+                        
+                        if is_yt or os.path.isfile(src_str):
+                            # Loop YouTube streams or video files seamlessly on-the-fly
                             try:
                                 self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                                ok_reset, frame_reset = self.cap.read()
+                                if ok_reset and frame_reset is not None:
+                                    with self.lock:
+                                        self.latest_frame = frame_reset
+                                    continue
                             except Exception:
                                 pass
+                            # If seeking pos 0 is unsupported, re-open live HTTP/HLS stream URL
+                            new_cap = open_camera_source(self.source)
+                            if new_cap and new_cap.isOpened():
+                                try:
+                                    self.cap.release()
+                                except Exception:
+                                    pass
+                                self.cap = new_cap
                         else:
                             # Reconnection retry for RTSP/webcam stream
                             time.sleep(0.05)
@@ -359,11 +410,6 @@ async def lifespan(app: FastAPI):
             cam_id = cam.get("id")
             source = str(cam.get("source") or cam.get("streamUrl") or config.DEFAULT_CAMERA_SOURCE)
             zone = cam.get("zone_id") or cam.get("zoneId") or config.DEFAULT_ZONE
-            is_active = int(cam.get("is_active", 1))
-
-            if not is_active:
-                log.info("Skipping inactive camera %s (source: %s)", cam_id, source)
-                continue
 
             if source == "0" and (not _show_main_webcam or not default_cam_ok):
                 log.info("Skipping default camera %s from DB (webcam unavailable or disabled by setting)", cam_id)
@@ -434,7 +480,7 @@ async def _save_and_record(w_data, ann_img, f_buf_copy, z_id, cam_id, ts, b64):
             if hasattr(cv2, "setLogLevel") and hasattr(cv2, "LOG_LEVEL_SILENT"):
                 cv2.setLogLevel(cv2.LOG_LEVEL_SILENT)
             h, w_dim, _ = ann_img.shape
-            for codec in ['MJPG', 'mp4v', 'XVID', 'avc1']:
+            for codec in ['mp4v', 'avc1', 'XVID', 'MJPG']:
                 try:
                     fourcc = cv2.VideoWriter_fourcc(*codec)
                     out_vid = cv2.VideoWriter(vid_filepath, fourcc, 15.0, (w_dim, h))
@@ -688,17 +734,20 @@ async def set_zone(body: ZoneCreate):
     await db.save_zone(zone_data)
     
     zone_id = body.id or body.zone or body.name or config.DEFAULT_ZONE
+    zone_name = body.name or zone_id
     required_ppe = body.required_ppe or []
     
     aliases = getattr(config, "PPE_ALIASES", {})
     norm_required = {aliases.get(item, item) for item in required_ppe}
     
     config.ZONE_RULES[zone_id] = norm_required
+    config.ZONE_RULES[zone_name] = norm_required
     for c_id, c_data in _active_cameras.items():
-        if c_data.get("zone") == zone_id and c_data.get("pipeline"):
-            c_data["pipeline"].update_zone_rule(zone_id, norm_required)
+        cam_z = c_data.get("zone")
+        if (cam_z == zone_id or cam_z == zone_name) and c_data.get("pipeline"):
+            c_data["pipeline"].update_zone_rule(cam_z, norm_required)
         
-    log.info("Updated safety zone rules for %s: %s", zone_id, norm_required)
+    log.info("Updated safety zone rules for %s / %s: %s", zone_id, zone_name, norm_required)
     return JSONResponse({"success": True, "required_ppe": list(norm_required)})
 
 @app.get("/api/violations")
@@ -935,18 +984,22 @@ async def update_camera_api(cam_id: str, body: dict):
     """Update existing camera parameters and re-open live stream."""
     ok = await db.update_camera(cam_id, body)
     
+    db_cameras = await db.get_cameras()
+    cam = next((c for c in db_cameras if c.get("id") == cam_id), None)
+
     new_zone = body.get("zoneId") or body.get("zone_id") or body.get("zone")
     new_source = body.get("source") or body.get("streamUrl")
 
+    cur_source = cam.get("source") if cam else "0"
+    cur_zone = cam.get("zone_id") if cam else "general_plant"
     if cam_id in _active_cameras:
-        c_data = _active_cameras[cam_id]
-        cur_source = c_data.get("source")
-        cur_zone = c_data.get("zone")
-        
-        target_source = new_source or cur_source
-        target_zone = new_zone or cur_zone
-        
-        start_camera_pipeline(cam_id, target_source, target_zone)
+        cur_source = _active_cameras[cam_id].get("source") or cur_source
+        cur_zone = _active_cameras[cam_id].get("zone") or cur_zone
+
+    target_source = str(new_source or cur_source).strip()
+    target_zone = new_zone or cur_zone
+    
+    start_camera_pipeline(cam_id, target_source, target_zone)
 
     await manager.broadcast_json({
         "type": "camera_updated",
@@ -971,10 +1024,28 @@ async def delete_camera_api(cam_id: str):
 
 @app.post("/api/cameras/{cam_id}/activate")
 async def activate_camera_api(cam_id: str):
-    """Since all cameras process in parallel, this endpoint now just notifies clients to switch focus."""
+    """Activate camera stream: start parallel vision pipeline and update DB status."""
+    db_cameras = await db.get_cameras()
+    cam = next((c for c in db_cameras if c.get("id") == cam_id), None)
+    
+    source = "0"
+    zone = "general_plant"
+    if cam:
+        source = str(cam.get("source") or cam.get("streamUrl") or "0").strip()
+        zone = cam.get("zone_id") or cam.get("zoneId") or "general_plant"
+        await db.update_camera(cam_id, {"is_active": 1})
+    elif cam_id in _active_cameras:
+        c_data = _active_cameras[cam_id]
+        source = c_data.get("source", "0")
+        zone = c_data.get("zone", "general_plant")
+
+    # Start vision pipeline for target camera
+    start_camera_pipeline(cam_id, source, zone)
+
     await manager.broadcast_json({
         "type": "camera_switched",
-        "activeCameraId": cam_id
+        "activeCameraId": cam_id,
+        "id": cam_id
     })
 
     return JSONResponse({"success": True, "activeCameraId": cam_id})

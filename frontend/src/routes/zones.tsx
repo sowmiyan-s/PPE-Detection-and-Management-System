@@ -6,6 +6,7 @@ import { AppShell, PageHeader } from "@/components/app-shell";
 import { PPE_LABELS, type PpeKey, type Zone } from "@/lib/mock-data";
 import { useSessionFetch, invalidateSessionCache } from "@/hooks/use-session-fetch";
 import { useToast } from "@/lib/toast-context";
+import { useAppData } from "@/lib/data-context";
 
 export const Route = createFileRoute("/zones")({
   head: () => ({
@@ -53,7 +54,6 @@ const defaultRequired: Record<PpeKey, boolean> = {
   "face-guard": false,
   "safety-suit": false,
   safety_belt: false,
-  harness: false,
   lanyard: false,
   hook: false,
   anchor_point: false,
@@ -80,6 +80,7 @@ function apiZoneToLocal(apiZone: any): Zone {
 
 function ZonesPage() {
   const { showToast } = useToast();
+  const { refetchAll } = useAppData();
   const [showAddModal, setShowAddModal] = useState(false);
   const [savingZoneId, setSavingZoneId] = useState<string | null>(null);
   const [submittingAddZone, setSubmittingAddZone] = useState(false);
@@ -96,10 +97,10 @@ function ZonesPage() {
   const [zones, setZones] = useState<Zone[]>([]);
 
   useEffect(() => {
-    if (initialConfig.length > 0 && zones.length === 0) {
+    if (initialConfig.length > 0) {
       setZones(initialConfig);
     }
-  }, [initialConfig, zones.length]);
+  }, [initialConfig]);
 
   const config = zones.length > 0 ? zones : initialConfig;
 
@@ -148,9 +149,13 @@ function ZonesPage() {
         required_ppe: requiredPpe,
       }),
     })
-      .then(() => {
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to create zone");
         invalidateSessionCache("/api/zones");
-        fetchZones(true);
+        return fetchZones(true);
+      })
+      .then(() => {
+        refetchAll();
         setShowAddModal(false);
         setNewZoneName("");
         setNewRequired({ ...defaultRequired });
@@ -176,9 +181,13 @@ function ZonesPage() {
         required_ppe: requiredPpe,
       }),
     })
-      .then(() => {
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to save zone");
         invalidateSessionCache("/api/zones");
-        fetchZones(true);
+        return fetchZones(true);
+      })
+      .then(() => {
+        refetchAll();
         showToast("Zone safety rules saved successfully");
       })
       .catch((err) => {
