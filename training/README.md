@@ -56,7 +56,9 @@ the best weights back to Drive automatically.
 
 See `../docs/dataset_guide.md` for the full labelling guide.
 
-# PPE detection system
-# Why Use ONNX as an Interchange FormatUniversal Bridge: Most models are trained in PyTorch or TensorFlow, which are heavy to run directly on edge devices. You first export your model to ONNX because it acts as a standard graph format supported by almost all deep learning training tools.Easy Conversion: Tools like torch.onnx.export or tf2onnx let you cleanly translate model weights and layout structures out of your training PC
+PPE detection system
+Why Use ONNX as an Interchange FormatUniversal Bridge: Most models are trained in PyTorch or TensorFlow, which are heavy to run directly on edge devices. You first export your model to ONNX because it acts as a standard graph format supported by almost all deep learning training tools.Easy Conversion: Tools like torch.onnx.export or tf2onnx let you cleanly translate model weights and layout structures out of your training PC
 
-# Nvidia Jetson is a series of small, low-power computer boards made by Nvidia. It acts like a tiny supercomputer. It lets devices run artificial intelligence and machine learning programs right on the device without needing the internet or a cloud server
+Nvidia Jetson is a series of small, low-power computer boards made by Nvidia. It acts like a tiny supercomputer. It lets devices run artificial intelligence and machine learning programs right on the device without needing the internet or a cloud server
+
+NVIDIA TensorRT is a software development kit (SDK) and high-performance deep learning inference optimizer created by NVIDIA. It takes trained neural networks from frameworks like PyTorch or TensorFlow, compiles them, and optimizes them to run with ultra-low latency and high throughput on NVIDIA GPUs
