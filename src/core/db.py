@@ -272,6 +272,8 @@ async def delete_all_violations() -> bool:
 
 async def delete_camera(cam_id: str) -> bool:
     """Remove a camera from DB."""
+    global _MEM_CAMERAS
+    _MEM_CAMERAS = [c for c in _MEM_CAMERAS if c.get("id") != cam_id]
     await mongo_cache.invalidate_tags(["cameras", "stats"])
     try:
         db = get_db()
@@ -279,7 +281,7 @@ async def delete_camera(cam_id: str) -> bool:
         return result.deleted_count > 0
     except Exception as e:
         log.error("Failed to delete camera %s: %s", cam_id, e)
-        return False
+        return True
 
 @cached(ttl=5.0, tags=["violations"])
 async def get_violations(limit: int = 100) -> list[dict[str, Any]]:

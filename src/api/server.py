@@ -329,10 +329,33 @@ async def lifespan(app: FastAPI):
             log.warning("MongoDB camera query timeout/fallback: %s", cam_err)
             db_cameras = db._MEM_CAMERAS
 
+        # PROBE DEFAULT WEBCAM
+        default_cam_ok = False
+        import cv2
+        for backend in [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY]:
+            try:
+                probe_cap = cv2.VideoCapture(0, backend)
+                if probe_cap and probe_cap.isOpened():
+                    ok, _ = probe_cap.read()
+                    if ok:
+                        default_cam_ok = True
+                    probe_cap.release()
+                    if default_cam_ok:
+                        break
+            except Exception:
+                pass
+
+        if not default_cam_ok:
+            log.warning("Default webcam (source 0) is busy or unavailable. It will be skipped.")
+
         for cam in db_cameras:
             cam_id = cam.get("id")
             source = str(cam.get("source") or cam.get("streamUrl") or config.DEFAULT_CAMERA_SOURCE)
             zone = cam.get("zone_id") or cam.get("zoneId") or config.DEFAULT_ZONE
+
+            if source == "0" and not default_cam_ok:
+                log.info("Skipping busy default camera %s from DB", cam_id)
+                continue
 
             log.info("Starting pipeline for camera %s (source: %s, zone: %s)", cam_id, source, zone)
             
