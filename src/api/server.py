@@ -44,11 +44,8 @@ log = logging.getLogger(__name__)
 
 # ── Global state ───────────────────────────────────────────────────────────────
 
-pipeline: VisionPipeline | None = None
-camera:   ThreadedCamera | None = None
-_active_zone = config.DEFAULT_ZONE
-_active_camera_id = "CAM-01"
-_fps_stats: dict = {"fps": 0.0, "frame_count": 0, "start_time": time.time()}
+_active_cameras: dict = {}
+_latest_mjpeg_bytes: dict = {}
 
 
 # ── WebSocket connection manager ───────────────────────────────────────────────
@@ -317,7 +314,7 @@ os.makedirs(EVIDENCE_DIR, exist_ok=True)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global pipeline, camera, _active_camera_id, _active_source, _active_zone
+    global _active_cameras, _latest_mjpeg_bytes
 
     # Auto-initialize database safely
     try:
@@ -326,41 +323,46 @@ async def lifespan(app: FastAPI):
         log.warning("Initial DB connection warning (server will start and retry): %s", err)
 
     try:
-        # Query active RTSP camera stream directly from MongoDB with safety fallback
         try:
             db_cameras = await asyncio.wait_for(db.get_cameras(), timeout=2.0)
         except Exception as cam_err:
             log.warning("MongoDB camera query timeout/fallback: %s", cam_err)
             db_cameras = db._MEM_CAMERAS
 
-        active_cam = next(
-            (c for c in db_cameras if c.get("is_active", 1) == 1 and str(c.get("source", "")).lower().startswith(("rtsp://", "rtsps://", "http://", "https://"))),
-            None
-        )
-        if not active_cam and db_cameras:
-            active_cam = db_cameras[0]
+        for cam in db_cameras:
+            cam_id = cam.get("id")
+            source = str(cam.get("source") or cam.get("streamUrl") or config.DEFAULT_CAMERA_SOURCE)
+            zone = cam.get("zone_id") or cam.get("zoneId") or config.DEFAULT_ZONE
 
-        if active_cam:
-            _active_camera_id = active_cam.get("id", "CAM-01")
-            _active_source = str(active_cam.get("source") or active_cam.get("streamUrl") or config.DEFAULT_CAMERA_SOURCE)
-            _active_zone = active_cam.get("zone_id") or active_cam.get("zoneId") or config.DEFAULT_ZONE
-
-        log.info("Fetched primary camera stream from MongoDB: %s (RTSP source: %s, zone: %s)", _active_camera_id, _active_source, _active_zone)
-        pipeline = VisionPipeline(zone=_active_zone)
-        camera   = ThreadedCamera(_active_source)
+            log.info("Starting pipeline for camera %s (source: %s, zone: %s)", cam_id, source, zone)
             
-        asyncio.create_task(vision_loop())
+            _active_cameras[cam_id] = {
+                "pipeline": VisionPipeline(zone=zone),
+                "camera": ThreadedCamera(source),
+                "fps_stats": {"fps": 0.0, "frame_count": 0, "start_time": time.time()},
+                "frame_buffer": deque(maxlen=15),
+                "source": source,
+                "zone": zone,
+            }
+            
+            # Start parallel loop
+            task = asyncio.create_task(vision_loop(cam_id))
+            _active_cameras[cam_id]["task"] = task
+
         asyncio.create_task(_evidence_worker())
-        log.info("Vision pipeline & async evidence background worker started (zone=%s, profile=%s)", _active_zone, config.PERFORMANCE_PROFILE)
+        log.info("Vision pipelines & async evidence background worker started")
     except Exception as exc:
         log.error("Pipeline init failed: %s", exc)
 
     yield
 
-    if camera and camera.isOpened():
-        camera.release()
-    if pipeline:
-        pipeline.release()
+    for cam_id, c_data in _active_cameras.items():
+        if c_data.get("camera") and c_data["camera"].isOpened():
+            c_data["camera"].release()
+        if c_data.get("pipeline"):
+            c_data["pipeline"].release()
+        if "task" in c_data:
+            c_data["task"].cancel()
 
 
 app = FastAPI(title="EdgeVision PPE Safety Server", lifespan=lifespan)
@@ -378,8 +380,7 @@ app.mount("/api/evidence", StaticFiles(directory=EVIDENCE_DIR), name="evidence")
 
 from collections import deque
 
-_active_source = "0"
-frame_buffer: deque = deque(maxlen=15)
+
 _worker_violation_cooldown: dict[str, float] = {}  # worker_id -> last DB write timestamp
 _scene_violation_cooldown: dict[str, float] = {}   # zone:missing_ppe -> last write timestamp
 
@@ -459,18 +460,29 @@ async def _save_and_record(w_data, ann_img, f_buf_copy, z_id, cam_id, ts, b64):
 
 # ── Vision loop ────────────────────────────────────────────────────────────────
 
-async def vision_loop() -> None:
-    global _fps_stats, camera
+async def vision_loop(cam_id: str) -> None:
+    c_data = _active_cameras.get(cam_id)
+    if not c_data: return
+    
     frame_interval = 1.0 / config.TARGET_FPS
-    _fps_stats["start_time"] = time.time()
 
     while True:
         loop_start = time.time()
+        
+        c_data = _active_cameras.get(cam_id)
+        if not c_data: return
+        camera = c_data.get("camera")
+        pipeline = c_data.get("pipeline")
+        fps_stats = c_data.get("fps_stats")
+        frame_buffer = c_data.get("frame_buffer")
+        active_source = c_data.get("source")
+        active_zone = c_data.get("zone")
 
         if camera is None or not camera.isOpened() or pipeline is None:
-            if _active_source and (camera is None or not camera.isOpened()):
+            if active_source and (camera is None or not camera.isOpened()):
                 try:
-                    camera = ThreadedCamera(_active_source)
+                    c_data["camera"] = ThreadedCamera(active_source)
+                    camera = c_data["camera"]
                 except Exception:
                     pass
             await asyncio.sleep(0.1)
@@ -486,18 +498,17 @@ async def vision_loop() -> None:
                 None, pipeline.process_frame, frame
             )
         except Exception as exc:
-            log.error("Inference error: %s", exc)
+            log.error("Inference error [%s]: %s", cam_id, exc)
             await asyncio.sleep(frame_interval)
             continue
 
-        _fps_stats["frame_count"] += 1
-        elapsed = time.time() - _fps_stats["start_time"]
+        fps_stats["frame_count"] += 1
+        elapsed = time.time() - fps_stats["start_time"]
         if elapsed >= 1.0:
-            _fps_stats["fps"] = round(_fps_stats["frame_count"] / elapsed, 1)
-            _fps_stats["start_time"] = time.time()
-            _fps_stats["frame_count"] = 0
+            fps_stats["fps"] = round(fps_stats["frame_count"] / elapsed, 1)
+            fps_stats["start_time"] = time.time()
+            fps_stats["frame_count"] = 0
 
-        # Stream frame resolution & encoding optimization for fast WebSocket transmission
         h_orig, w_orig = annotated.shape[:2]
         if w_orig > config.STREAM_MAX_WIDTH:
             new_h = int(h_orig * (config.STREAM_MAX_WIDTH / float(w_orig)))
@@ -511,14 +522,12 @@ async def vision_loop() -> None:
             continue
 
         raw_jpeg_bytes = buf.tobytes()
-        global _latest_mjpeg_bytes
-        _latest_mjpeg_bytes = raw_jpeg_bytes
+        _latest_mjpeg_bytes[cam_id] = raw_jpeg_bytes
         img_b64 = base64.b64encode(raw_jpeg_bytes).decode("ascii")
 
-        frame_buffer.append(annotated)
+        if frame_buffer is not None:
+            frame_buffer.append(annotated)
 
-        # Save proof of evidence when worker is non-compliant
-        # Per-worker + Scene-level cooldown prevents duplicate DB entries
         now = time.time()
         violation_workers = [
             w for w in workers
@@ -526,28 +535,28 @@ async def vision_loop() -> None:
         ]
         for w in violation_workers:
             wid = w["worker_id"]
-            scene_key = f"{_active_zone}:{','.join(sorted(w.get('missing_ppe', [])))}"
+            scene_key = f"{active_zone}:{','.join(sorted(w.get('missing_ppe', [])))}"
             
             last_worker_write = _worker_violation_cooldown.get(wid, 0.0)
             last_scene_write = _scene_violation_cooldown.get(scene_key, 0.0)
 
             if (now - last_worker_write < config.VIOLATION_COOLDOWN_SECS) or (now - last_scene_write < 10.0):
-                continue  # skip — duplicate event within cooldown period
+                continue
 
             _worker_violation_cooldown[wid] = now
             _scene_violation_cooldown[scene_key] = now
 
-            # Push to non-blocking background queue (<0.01ms) -> zero vision loop lag!
             try:
-                _evidence_queue.put_nowait((w, annotated.copy(), list(frame_buffer), _active_zone, _active_camera_id, now, img_b64))
+                _evidence_queue.put_nowait((w, annotated.copy(), list(frame_buffer) if frame_buffer else [], active_zone, cam_id, now, img_b64))
             except asyncio.QueueFull:
                 log.warning("Evidence background queue full, skipping push to preserve live camera FPS.")
 
         payload = json.dumps({
+            "camera_id": cam_id,
             "frame":   img_b64,
             "workers": workers,
-            "fps":     _fps_stats["fps"],
-            "zone":    _active_zone,
+            "fps":     fps_stats["fps"],
+            "zone":    active_zone,
         })
 
         if manager.active:
@@ -558,25 +567,24 @@ async def vision_loop() -> None:
 
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
-_latest_mjpeg_bytes: bytes | None = None
-
-async def generate_mjpeg_stream():
+async def generate_mjpeg_stream(camera_id: str):
     """Generator streaming boundary-separated JPEG frames (MJPEG HTTP stream)."""
     while True:
-        if _latest_mjpeg_bytes is not None:
+        frame_bytes = _latest_mjpeg_bytes.get(camera_id)
+        if frame_bytes is not None:
             yield (
                 b"--frame\r\n"
-                b"Content-Type: image/jpeg\r\n\r\n" + _latest_mjpeg_bytes + b"\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
             )
         await asyncio.sleep(0.04)
 
 @app.get("/api/stream")
 @app.get("/stream")
-async def mjpeg_stream_api():
+async def mjpeg_stream_api(camera_id: str = "CAM-01"):
     """Live MJPEG video stream with bounding boxes and PPE annotations.
     Viewable in VLC, Web Browsers, Chrome, Safari, mobile devices, and ngrok tunnels."""
     return StreamingResponse(
-        generate_mjpeg_stream(),
+        generate_mjpeg_stream(camera_id),
         media_type="multipart/x-mixed-replace; boundary=frame"
     )
 
@@ -610,7 +618,6 @@ async def list_zones():
 @app.post("/api/zones")
 @app.post("/zones")
 async def set_zone(body: ZoneCreate):
-    global _active_zone
     zone_data = body.model_dump(exclude_none=True)
     await db.save_zone(zone_data)
     
@@ -621,13 +628,12 @@ async def set_zone(body: ZoneCreate):
     norm_required = {aliases.get(item, item) for item in required_ppe}
     
     config.ZONE_RULES[zone_id] = norm_required
-    if pipeline:
-        pipeline.update_zone_rule(zone_id, norm_required)
-        pipeline.set_zone(zone_id)
+    for c_id, c_data in _active_cameras.items():
+        if c_data.get("zone") == zone_id and c_data.get("pipeline"):
+            c_data["pipeline"].update_zone_rule(zone_id, norm_required)
         
-    _active_zone = zone_id
     log.info("Updated safety zone rules for %s: %s", zone_id, norm_required)
-    return JSONResponse({"success": True, "active": _active_zone, "required_ppe": list(norm_required)})
+    return JSONResponse({"success": True, "required_ppe": list(norm_required)})
 
 @app.get("/api/violations")
 async def get_violations_api(
@@ -847,48 +853,40 @@ async def add_camera_api(body: CameraCreate):
 @app.patch("/api/cameras/{cam_id}")
 async def update_camera_api(cam_id: str, body: dict):
     """Update existing camera parameters and re-open live stream if active."""
-    global _active_zone
     ok = await db.update_camera(cam_id, body)
     
     new_zone = body.get("zoneId") or body.get("zone_id") or body.get("zone")
-    if new_zone:
-        _active_zone = new_zone
-        if pipeline:
-            pipeline.set_zone(_active_zone)
-        log.info("Updated active pipeline zone to %s for camera %s", _active_zone, cam_id)
-
-    # Re-activate live camera stream if currently active
-    if cam_id == _active_camera_id:
-        try:
-            await activate_camera_api(cam_id)
-        except Exception as err:
-            log.warning("Re-activating updated camera %s failed: %s", cam_id, err)
+    if new_zone and cam_id in _active_cameras:
+        _active_cameras[cam_id]["zone"] = new_zone
+        _active_cameras[cam_id]["pipeline"].set_zone(new_zone)
         
+    new_source = body.get("source") or body.get("streamUrl")
+    if new_source and cam_id in _active_cameras:
+        _active_cameras[cam_id]["source"] = new_source
+        _active_cameras[cam_id]["camera"].release()
+        _active_cameras[cam_id]["camera"] = ThreadedCamera(new_source)
+
     await manager.broadcast_json({
         "type": "camera_updated",
         "id": cam_id,
         "camera": body
     })
 
-    return JSONResponse({"success": ok, "id": cam_id, "active_zone": _active_zone})
+    return JSONResponse({"success": ok, "id": cam_id})
 
 @app.delete("/api/cameras/{cam_id}")
 async def delete_camera_api(cam_id: str):
     """Delete a camera from MongoDB and memory, and broadcast removal."""
-    global camera, _active_camera_id, _active_source, _active_zone
-    
     ok = await db.delete_camera(cam_id)
     
-    if cam_id == _active_camera_id:
-        if camera:
-            try:
-                camera.release()
-            except Exception:
-                pass
-            camera = None
-        _active_camera_id = None
-        _active_source = None
-        _active_zone = None
+    if cam_id in _active_cameras:
+        c_data = _active_cameras.pop(cam_id)
+        if c_data.get("camera"):
+            c_data["camera"].release()
+        if c_data.get("pipeline"):
+            c_data["pipeline"].release()
+        if c_data.get("task"):
+            c_data["task"].cancel()
 
     await manager.broadcast_json({
         "type": "camera_deleted",
@@ -899,43 +897,10 @@ async def delete_camera_api(cam_id: str):
 
 @app.post("/api/cameras/{cam_id}/activate")
 async def activate_camera_api(cam_id: str):
-    """Switch the live camera feed dynamically across model pipeline and multi-device UI."""
-    global camera, _active_camera_id, _active_source, _fps_stats, _active_zone
-    
-    db_cameras = await db.get_cameras()
-    cam_data = next((c for c in db_cameras if c["id"] == cam_id), None)
-    if not cam_data:
-        return JSONResponse({"error": "Camera not found"}, status_code=404)
-    
-    source = cam_data.get("source", "0")
-    cam_zone = cam_data.get("zone_id") or cam_data.get("zoneId") or "general_plant"
-    _active_zone = cam_zone
-    if pipeline:
-        pipeline.set_zone(_active_zone)
-        
-    log.info("Switching active camera to %s (source: %s, zone: %s)", cam_id, source, _active_zone)
-    
-    new_cam = ThreadedCamera(str(source))
-    if not new_cam.isOpened():
-        return JSONResponse({"error": f"Failed to open source: {source}"}, status_code=400)
-    
-    old_cam = camera
-    camera = new_cam
-    _active_camera_id = cam_id
-    _active_source = str(source)
-    _fps_stats = {"fps": 0.0, "frame_count": 0, "start_time": time.time()}
-    if old_cam:
-        try:
-            old_cam.release()
-        except Exception:
-            pass
-        
-    # Broadcast to all connected clients that the active camera stream switched
+    """Since all cameras process in parallel, this endpoint now just notifies clients to switch focus."""
     await manager.broadcast_json({
         "type": "camera_switched",
-        "activeCameraId": cam_id,
-        "source": str(source),
-        "zoneId": _active_zone
+        "activeCameraId": cam_id
     })
 
     return JSONResponse({"success": True, "activeCameraId": cam_id})

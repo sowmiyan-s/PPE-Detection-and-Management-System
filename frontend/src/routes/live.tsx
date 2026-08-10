@@ -47,6 +47,12 @@ function LivePage() {
   const [wsStatus, setWsStatus] = useState<"offline" | "online" | "connecting">("connecting");
 
   const [selectedCamId, setSelectedCamId] = useState<string | null>(null);
+  const selectedCamIdRef = useRef<string | null>(null);
+  
+  useEffect(() => {
+    selectedCamIdRef.current = selectedCamId;
+  }, [selectedCamId]);
+
   const [viewMode, setViewMode] = useState<"grid" | "focus">("grid");
   const [filterMode, setFilterMode] = useState<"all" | "violations" | "compliant" | "has_helmet" | "has_vest" | "has_goggles" | "has_boots" | "has_gloves">("all");
   const wsRef = useRef<WebSocket | null>(null);
@@ -81,15 +87,19 @@ function LivePage() {
     ws.onmessage = (ev) => {
       try {
         const d = JSON.parse(ev.data);
-        if (d.frame) setFrame(d.frame);
-        if (d.fps !== undefined) setFps(d.fps);
-        if (d.zone) setZone(d.zone);
-        if (d.workers) setWorkers(d.workers);
+        
         if (["camera_added", "camera_switched", "camera_deleted", "camera_updated"].includes(d.type)) {
           fetchCameras();
           if (d.activeCameraId) {
             setSelectedCamId(d.activeCameraId);
           }
+        } else {
+          // Normal frame payload
+          if (d.camera_id && d.camera_id !== selectedCamIdRef.current) return;
+          if (d.frame) setFrame(d.frame);
+          if (d.fps !== undefined) setFps(d.fps);
+          if (d.zone) setZone(d.zone);
+          if (d.workers) setWorkers(d.workers);
         }
       } catch (err) {
         console.error("WS Parse Error", err);
