@@ -214,7 +214,7 @@ os.makedirs(EVIDENCE_DIR, exist_ok=True)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global pipeline, camera
+    global pipeline, camera, _active_camera_id, _active_source, _active_zone
 
     # Auto-initialize database safely
     try:
@@ -223,17 +223,28 @@ async def lifespan(app: FastAPI):
         log.warning("Initial DB connection warning (server will start and retry): %s", err)
 
     try:
+        # Query active RTSP camera stream directly from MongoDB with safety fallback
+        try:
+            db_cameras = await asyncio.wait_for(db.get_cameras(), timeout=2.0)
+        except Exception as cam_err:
+            log.warning("MongoDB camera query timeout/fallback: %s", cam_err)
+            db_cameras = db._MEM_CAMERAS
+
+        active_cam = next(
+            (c for c in db_cameras if c.get("is_active", 1) == 1 and str(c.get("source", "")).lower().startswith(("rtsp://", "rtsps://", "http://", "https://"))),
+            None
+        )
+        if not active_cam and db_cameras:
+            active_cam = db_cameras[0]
+
+        if active_cam:
+            _active_camera_id = active_cam.get("id", "CAM-01")
+            _active_source = str(active_cam.get("source") or active_cam.get("streamUrl") or config.DEFAULT_CAMERA_SOURCE)
+            _active_zone = active_cam.get("zone_id") or active_cam.get("zoneId") or config.DEFAULT_ZONE
+
+        log.info("Fetched primary camera stream from MongoDB: %s (RTSP source: %s, zone: %s)", _active_camera_id, _active_source, _active_zone)
         pipeline = VisionPipeline(zone=_active_zone)
-        camera   = ThreadedCamera(str(config.DEFAULT_CAMERA_INDEX))
-        if not camera.isOpened():
-            log.warning("Physical webcam %s not available – falling back to sample video feed",
-                        config.DEFAULT_CAMERA_INDEX)
-            sample_video = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "sample_feed.mp4")
-            if os.path.exists(sample_video):
-                camera = ThreadedCamera(sample_video)
-                log.info("Loaded sample video feed from %s", sample_video)
-            else:
-                log.error("Sample video feed not found at %s", sample_video)
+        camera   = ThreadedCamera(_active_source)
             
         asyncio.create_task(vision_loop())
         asyncio.create_task(_evidence_worker())
