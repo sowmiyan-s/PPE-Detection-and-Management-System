@@ -33,7 +33,7 @@ python training/export_tensorrt.py --model ppe_training/custom_model/weights/bes
 # 5. Point the runtime at your model
 export MODEL_PATH=ppe_training/custom_model/weights/best.pt
 # or best.engine for TensorRT
-```
+
 
 ## Google Colab
 
@@ -55,3 +55,8 @@ the best weights back to Drive automatically.
 | 7 | anchor_point |
 
 See `../docs/dataset_guide.md` for the full labelling guide.
+
+# PPE detection system
+# Why Use ONNX as an Interchange FormatUniversal Bridge: Most models are trained in PyTorch or TensorFlow, which are heavy to run directly on edge devices. You first export your model to ONNX because it acts as a standard graph format supported by almost all deep learning training tools.Easy Conversion: Tools like torch.onnx.export or tf2onnx let you cleanly translate model weights and layout structures out of your training PC
+
+# Nvidia Jetson is a series of small, low-power computer boards made by Nvidia. It acts like a tiny supercomputer. It lets devices run artificial intelligence and machine learning programs right on the device without needing the internet or a cloud server
