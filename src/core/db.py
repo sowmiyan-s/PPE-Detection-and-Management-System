@@ -688,7 +688,7 @@ _MEM_CAMERAS: list[dict] = [
     }
 ]
 
-@cached(ttl=30.0, tags=["cameras"])
+@cached(ttl=15.0, tags=["cameras"])
 async def get_cameras() -> list[dict[str, Any]]:
     """Retrieve active camera streams from DB or in-memory fallback."""
     try:
@@ -699,13 +699,17 @@ async def get_cameras() -> list[dict[str, Any]]:
             return _MEM_CAMERAS
         rows = []
         for c in cams:
+            src = str(c.get("source") or c.get("streamUrl") or "0")
+            cam_type = c.get("type") or ("webcam" if src.isdigit() else "stream")
             rows.append({
                 "id": c.get("id"),
                 "name": c.get("name"),
-                "source": c.get("source"),
-                "location": c.get("location"),
+                "source": src,
+                "streamUrl": src,
+                "type": cam_type,
+                "location": c.get("location", "Plant Area"),
                 "is_active": c.get("is_active", 1),
-                "zone_id": c.get("zone_id"),
+                "zone_id": c.get("zone_id") or c.get("zoneId") or "general_plant",
                 "target_fps": c.get("target_fps", 20)
             })
         return rows
@@ -716,53 +720,84 @@ async def get_cameras() -> list[dict[str, Any]]:
 async def save_camera(cam_data: dict) -> bool:
     """Insert or update a camera in DB."""
     cam_id = cam_data.get("id") or f"CAM-{uuid.uuid4().hex[:4].upper()}"
+    src = str(cam_data.get("source") or cam_data.get("streamUrl") or "0").strip()
+    cam_type = cam_data.get("type") or ("webcam" if src.isdigit() else "stream")
+    zone_id = cam_data.get("zoneId") or cam_data.get("zone_id") or "general_plant"
+    fps = int(cam_data.get("targetFps") or cam_data.get("target_fps") or 20)
+    
     cam_entry = {
         "id": cam_id,
         "name": cam_data.get("name", "New Camera"),
-        "source": cam_data.get("source") or cam_data.get("streamUrl", "0"),
+        "source": src,
+        "streamUrl": src,
+        "type": cam_type,
         "location": cam_data.get("location", "Plant Area"),
         "is_active": 1,
-        "zone_id": cam_data.get("zoneId", "ZONE-01"),
-        "target_fps": cam_data.get("targetFps", 20)
+        "zone_id": zone_id,
+        "target_fps": fps
     }
+    
     # Update local memory
+    _MEM_CAMERAS[:] = [c for c in _MEM_CAMERAS if c.get("id") != cam_id]
     _MEM_CAMERAS.append(cam_entry)
     await mongo_cache.invalidate_tags(["cameras", "stats"])
 
     try:
         db = get_db()
-        update_doc = {}
-        if "name" in cam_data: update_doc["name"] = cam_data["name"]
-        if "source" in cam_data: update_doc["source"] = cam_data["source"]
-        if "streamUrl" in cam_data: update_doc["source"] = cam_data["streamUrl"]
-        if "location" in cam_data: update_doc["location"] = cam_data["location"]
-        if "zoneId" in cam_data: update_doc["zone_id"] = cam_data["zoneId"]
-        if "targetFps" in cam_data: update_doc["target_fps"] = cam_data["targetFps"]
-        
-        if update_doc:
-            update_doc["updated_at"] = datetime.utcnow()
-            await db.cameras.update_one(
-                {"id": cam_id},
-                {"$set": update_doc},
-                upsert=True
-            )
+        update_doc = {
+            "name": cam_entry["name"],
+            "source": src,
+            "streamUrl": src,
+            "type": cam_type,
+            "location": cam_entry["location"],
+            "zone_id": zone_id,
+            "target_fps": fps,
+            "is_active": 1,
+            "updated_at": datetime.utcnow()
+        }
+        await db.cameras.update_one(
+            {"id": cam_id},
+            {"$set": update_doc},
+            upsert=True
+        )
         return True
     except Exception as e:
-        log.warning("MongoDB save_camera offline: saved to local memory cache")
+        log.warning("MongoDB save_camera offline: saved to local memory cache (%s)", e)
         return True
 
 async def update_camera(cam_id: str, cam_data: dict) -> bool:
     """Update camera properties in DB."""
     await mongo_cache.invalidate_tags(["cameras", "stats"])
+    
+    src = str(cam_data.get("source") or cam_data.get("streamUrl") or "").strip()
+    if src:
+        cam_type = cam_data.get("type") or ("webcam" if src.isdigit() else "stream")
+    else:
+        cam_type = cam_data.get("type")
+
+    # Update memory fallback
+    for c in _MEM_CAMERAS:
+        if c.get("id") == cam_id:
+            if "name" in cam_data and cam_data["name"]: c["name"] = cam_data["name"]
+            if src:
+                c["source"] = src
+                c["streamUrl"] = src
+            if cam_type: c["type"] = cam_type
+            if "zoneId" in cam_data or "zone_id" in cam_data:
+                c["zone_id"] = cam_data.get("zoneId") or cam_data.get("zone_id")
+            if "targetFps" in cam_data or "target_fps" in cam_data:
+                c["target_fps"] = int(cam_data.get("targetFps") or cam_data.get("target_fps"))
+
     try:
         db = get_db()
         update_doc = {}
         if "name" in cam_data and cam_data["name"]:
             update_doc["name"] = cam_data["name"]
-        if "source" in cam_data and cam_data["source"]:
-            update_doc["source"] = cam_data["source"]
-        elif "streamUrl" in cam_data and cam_data["streamUrl"]:
-            update_doc["source"] = cam_data["streamUrl"]
+        if src:
+            update_doc["source"] = src
+            update_doc["streamUrl"] = src
+        if cam_type:
+            update_doc["type"] = cam_type
         if "zone_id" in cam_data and cam_data["zone_id"]:
             update_doc["zone_id"] = cam_data["zone_id"]
         elif "zoneId" in cam_data and cam_data["zoneId"]:
