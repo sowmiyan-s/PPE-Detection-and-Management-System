@@ -297,9 +297,10 @@ async def _save_and_record(w_data, ann_img, f_buf_copy, z_id, cam_id, ts, b64):
         cv2.imwrite(filepath, ann_img)
         
         saved_vid = False
-        old_log_lvl = cv2.getLogLevel()
+        old_log_lvl = cv2.getLogLevel() if hasattr(cv2, "getLogLevel") else None
         try:
-            cv2.setLogLevel(cv2.LOG_LEVEL_SILENT)
+            if hasattr(cv2, "setLogLevel") and hasattr(cv2, "LOG_LEVEL_SILENT"):
+                cv2.setLogLevel(cv2.LOG_LEVEL_SILENT)
             h, w_dim, _ = ann_img.shape
             for codec in ['MJPG', 'mp4v', 'XVID', 'avc1']:
                 try:
@@ -317,7 +318,11 @@ async def _save_and_record(w_data, ann_img, f_buf_copy, z_id, cam_id, ts, b64):
         except Exception as vid_err:
             log.debug("Video write fallback: %s", vid_err)
         finally:
-            cv2.setLogLevel(old_log_lvl)
+            if old_log_lvl is not None and hasattr(cv2, "setLogLevel"):
+                try:
+                    cv2.setLogLevel(old_log_lvl)
+                except Exception:
+                    pass
 
         vid_url = f"/api/evidence/{vid_filename}" if saved_vid else ""
         return f"/api/evidence/{filename}", vid_url
