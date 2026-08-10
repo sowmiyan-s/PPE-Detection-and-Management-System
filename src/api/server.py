@@ -774,6 +774,31 @@ async def update_camera_api(cam_id: str, body: dict):
 
     return JSONResponse({"success": ok, "id": cam_id, "active_zone": _active_zone})
 
+@app.delete("/api/cameras/{cam_id}")
+async def delete_camera_api(cam_id: str):
+    """Delete a camera from MongoDB and memory, and broadcast removal."""
+    global camera, _active_camera_id, _active_source, _active_zone
+    
+    ok = await db.delete_camera(cam_id)
+    
+    if cam_id == _active_camera_id:
+        if camera:
+            try:
+                camera.release()
+            except Exception:
+                pass
+            camera = None
+        _active_camera_id = None
+        _active_source = None
+        _active_zone = None
+
+    await manager.broadcast_json({
+        "type": "camera_deleted",
+        "id": cam_id
+    })
+
+    return JSONResponse({"success": ok, "id": cam_id})
+
 @app.post("/api/cameras/{cam_id}/activate")
 async def activate_camera_api(cam_id: str):
     """Switch the live camera feed dynamically across model pipeline and multi-device UI."""
