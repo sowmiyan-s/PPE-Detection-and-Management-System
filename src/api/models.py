@@ -14,6 +14,8 @@ class CameraCreate(BaseModel):
     name: str = "New Camera"
     source: Optional[str] = None
     streamUrl: Optional[str] = None # For backward compatibility with older dashboard payload
+    type: Optional[str] = None # 'webcam' or 'stream'
     location: Optional[str] = ""
     zoneId: Optional[str] = "ZONE-01"
     targetFps: Optional[int] = 20
+

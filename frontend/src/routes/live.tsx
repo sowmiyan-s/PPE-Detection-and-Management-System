@@ -85,6 +85,12 @@ function LivePage() {
         if (d.fps !== undefined) setFps(d.fps);
         if (d.zone) setZone(d.zone);
         if (d.workers) setWorkers(d.workers);
+        if (["camera_added", "camera_switched", "camera_deleted", "camera_updated"].includes(d.type)) {
+          fetchCameras();
+          if (d.activeCameraId) {
+            setSelectedCamId(d.activeCameraId);
+          }
+        }
       } catch (err) {
         console.error("WS Parse Error", err);
       }

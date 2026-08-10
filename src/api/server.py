@@ -201,6 +201,10 @@ class ConnectionManager:
         for ws in dead:
             self.disconnect(ws)
 
+    async def broadcast_json(self, data: dict) -> None:
+        payload = json.dumps(data)
+        await self.broadcast(payload)
+
 
 manager = ConnectionManager()
 
@@ -581,6 +585,23 @@ async def clear_all_violations_api():
 @app.delete("/api/cameras/{cam_id}")
 async def delete_camera_api(cam_id: str):
     ok = await db.delete_camera(cam_id)
+    
+    # Broadcast deletion event to all connected clients
+    await manager.broadcast_json({
+        "type": "camera_deleted",
+        "id": cam_id
+    })
+
+    # If the active camera was deleted, switch to the next available camera if possible
+    if cam_id == _active_camera_id:
+        remaining = await db.get_cameras()
+        if remaining:
+            next_cam = remaining[0]["id"]
+            try:
+                await activate_camera_api(next_cam)
+            except Exception:
+                pass
+
     return JSONResponse({"success": ok, "id": cam_id})
 
 @app.get("/api/workers")
@@ -619,41 +640,93 @@ async def get_cameras_api():
     result = []
     for cam in db_cameras:
         is_live = cam["id"] == _active_camera_id and camera is not None and camera.isOpened()
+        src = str(cam.get("source") or cam.get("streamUrl") or "0")
+        cam_type = cam.get("type") or ("webcam" if src.isdigit() else "stream")
         result.append({
             "id": cam["id"],
             "name": cam["name"],
-            "zoneId": cam.get("zone_id") or (_active_zone if cam["id"] == _active_camera_id else "ZONE-01"),
-            "resolution": "1920×1080",
+            "zoneId": cam.get("zone_id") or (_active_zone if cam["id"] == _active_camera_id else "general_plant"),
+            "resolution": cam.get("resolution") or "1920×1080",
             "targetFps": cam.get("target_fps") or config.TARGET_FPS,
-            "actualFps": _fps_stats["fps"] if is_live else 0.0,
+            "actualFps": round(_fps_stats["fps"], 1) if is_live else 0.0,
             "latencyMs": round(1000.0 / max(1, _fps_stats["fps"]), 1) if is_live else 0.0,
             "status": "online" if is_live else "offline",
-            "streamUrl": cam["source"],
+            "streamUrl": src,
+            "type": cam_type,
+            "location": cam.get("location", "Plant Area"),
+            "is_active": 1 if is_live else 0
         })
 
     return JSONResponse(result)
 
 @app.get("/api/devices/cameras")
 async def list_physical_cameras():
-    """Probe local indices to discover attached physical webcams."""
+    """Probe local hardware ports to discover available webcams without lock contention."""
     available = []
-    # Quick probe of first 5 ports
-    for i in range(5):
-        cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
-        if not cap.isOpened():
-            cap = cv2.VideoCapture(i)
-        
-        if cap.isOpened():
-            available.append({"id": str(i), "name": f"Webcam {i}"})
-            cap.release()
+    seen = set()
+
+    # If the currently active camera is a local webcam index, it's already running & active
+    if _active_source and _active_source.isdigit():
+        idx_str = str(_active_source)
+        available.append({
+            "id": idx_str,
+            "name": f"Webcam Index {idx_str} (Active Live Feed)",
+            "source": idx_str,
+            "resolution": f"{config.FRAME_WIDTH}x{config.FRAME_HEIGHT}",
+            "type": "webcam",
+            "is_active": True
+        })
+        seen.add(idx_str)
+
+    # Probe indices 0..9 for other hardware webcams
+    for i in range(10):
+        idx_str = str(i)
+        if idx_str in seen:
+            continue
+        try:
+            cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+            if not cap.isOpened():
+                cap = cv2.VideoCapture(i)
+            
+            if cap.isOpened():
+                w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 640)
+                h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 480)
+                available.append({
+                    "id": idx_str,
+                    "name": f"Webcam Index {i} ({w}x{h})",
+                    "source": idx_str,
+                    "resolution": f"{w}x{h}",
+                    "type": "webcam",
+                    "is_active": False
+                })
+                cap.release()
+        except Exception as err:
+            log.debug("Webcam index %d probe info: %s", i, err)
+
+    if not available:
+        available.append({
+            "id": "0",
+            "name": "Default Webcam (Index 0)",
+            "source": "0",
+            "resolution": "640x480",
+            "type": "webcam",
+            "is_active": _active_source == "0"
+        })
+
     return JSONResponse(available)
 
 @app.post("/api/cameras")
 async def add_camera_api(body: CameraCreate):
-    """Register a new camera in the database and auto-activate it for live AI worker detection."""
+    """Register a new webcam or stream link in MongoDB and auto-activate it for live AI monitoring."""
     cam_dict = body.model_dump(exclude_none=True)
     cam_id = cam_dict.get("id") or f"CAM-{uuid.uuid4().hex[:4].upper()}"
     cam_dict["id"] = cam_id
+    
+    src = str(cam_dict.get("source") or cam_dict.get("streamUrl") or "0").strip()
+    cam_dict["source"] = src
+    cam_dict["streamUrl"] = src
+    cam_dict["type"] = cam_dict.get("type") or ("webcam" if src.isdigit() else "stream")
+    
     ok = await db.save_camera(cam_dict)
     
     # Automatically switch live vision pipeline feed to newly added camera
@@ -661,6 +734,14 @@ async def add_camera_api(body: CameraCreate):
         await activate_camera_api(cam_id)
     except Exception as e:
         log.warning("Auto-activation of new camera %s warning: %s", cam_id, e)
+
+    # Broadcast real-time update event to all connected clients
+    await manager.broadcast_json({
+        "type": "camera_added",
+        "id": cam_id,
+        "camera": cam_dict,
+        "activeCameraId": _active_camera_id
+    })
 
     return JSONResponse({"success": ok, "id": cam_id, "activeCameraId": _active_camera_id})
 
@@ -685,11 +766,17 @@ async def update_camera_api(cam_id: str, body: dict):
         except Exception as err:
             log.warning("Re-activating updated camera %s failed: %s", cam_id, err)
         
+    await manager.broadcast_json({
+        "type": "camera_updated",
+        "id": cam_id,
+        "camera": body
+    })
+
     return JSONResponse({"success": ok, "id": cam_id, "active_zone": _active_zone})
 
 @app.post("/api/cameras/{cam_id}/activate")
 async def activate_camera_api(cam_id: str):
-    """Switch the live camera feed dynamically."""
+    """Switch the live camera feed dynamically across model pipeline and multi-device UI."""
     global camera, _active_camera_id, _active_source, _fps_stats, _active_zone
     
     db_cameras = await db.get_cameras()
@@ -720,6 +807,14 @@ async def activate_camera_api(cam_id: str):
         except Exception:
             pass
         
+    # Broadcast to all connected clients that the active camera stream switched
+    await manager.broadcast_json({
+        "type": "camera_switched",
+        "activeCameraId": cam_id,
+        "source": str(source),
+        "zoneId": _active_zone
+    })
+
     return JSONResponse({"success": True, "activeCameraId": cam_id})
 
 import io
