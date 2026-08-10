@@ -816,6 +816,22 @@ async def update_camera(cam_id: str, cam_data: dict) -> bool:
         log.error("Failed to update camera %s: %s", cam_id, e)
         return False
 
+async def delete_camera(cam_id: str) -> bool:
+    """Delete a camera from DB and local cache."""
+    await mongo_cache.invalidate_tags(["cameras", "stats"])
+    
+    # Update local memory
+    global _MEM_CAMERAS
+    _MEM_CAMERAS[:] = [c for c in _MEM_CAMERAS if c.get("id") != cam_id]
+
+    try:
+        db = get_db()
+        result = await db.cameras.delete_one({"id": cam_id})
+        return result.deleted_count > 0
+    except Exception as e:
+        log.error("Failed to delete camera %s: %s", cam_id, e)
+        return False
+
 @cached(ttl=5.0, tags=["violations"])
 async def get_filtered_violations(
     camera_ids: list[str] | None = None,

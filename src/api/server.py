@@ -135,19 +135,28 @@ class ThreadedCamera:
             self.thread.start()
 
     def _reader_loop(self) -> None:
-        while self.is_running and self.cap and self.cap.isOpened():
-            ok, frame = self.cap.read()
-            if ok:
-                with self.lock:
-                    self.latest_frame = frame
-            else:
-                src_str = str(self.source).lower()
-                if not src_str.isdigit() and not src_str.startswith(("rtsp://", "rtsps://", "http://", "https://")):
-                    try:
-                        self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                    except Exception:
-                        pass
-                time.sleep(0.01)
+        while self.is_running:
+            cap_ref = self.cap
+            if cap_ref is None:
+                break
+            try:
+                if not cap_ref.isOpened():
+                    break
+                ok, frame = cap_ref.read()
+                if ok and frame is not None:
+                    with self.lock:
+                        self.latest_frame = frame
+                else:
+                    src_str = str(self.source).lower()
+                    if not src_str.isdigit() and not src_str.startswith(("rtsp://", "rtsps://", "http://", "https://")):
+                        try:
+                            cap_ref.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        except Exception:
+                            pass
+                    time.sleep(0.02)
+            except Exception as err:
+                log.debug("Threaded camera loop exception: %s", err)
+                time.sleep(0.02)
 
     def read(self) -> tuple[bool, np.ndarray | None]:
         with self.lock:
@@ -158,11 +167,17 @@ class ThreadedCamera:
             return False, None
 
     def isOpened(self) -> bool:
-        return bool(self.cap and self.cap.isOpened() and self.is_running)
+        try:
+            return bool(self.cap and self.cap.isOpened() and self.is_running)
+        except Exception:
+            return False
 
     def set(self, propId: int, value: float) -> bool:
-        if self.cap and self.cap.isOpened():
-            return self.cap.set(propId, value)
+        try:
+            if self.cap and self.cap.isOpened():
+                return self.cap.set(propId, value)
+        except Exception:
+            pass
         return False
 
     def release(self) -> None:
@@ -773,6 +788,31 @@ async def update_camera_api(cam_id: str, body: dict):
     })
 
     return JSONResponse({"success": ok, "id": cam_id, "active_zone": _active_zone})
+
+@app.delete("/api/cameras/{cam_id}")
+async def delete_camera_api(cam_id: str):
+    """Delete a camera from MongoDB and memory, and broadcast removal."""
+    global camera, _active_camera_id, _active_source, _active_zone
+    
+    ok = await db.delete_camera(cam_id)
+    
+    if cam_id == _active_camera_id:
+        if camera:
+            try:
+                camera.release()
+            except Exception:
+                pass
+            camera = None
+        _active_camera_id = None
+        _active_source = None
+        _active_zone = None
+
+    await manager.broadcast_json({
+        "type": "camera_deleted",
+        "id": cam_id
+    })
+
+    return JSONResponse({"success": ok, "id": cam_id})
 
 @app.post("/api/cameras/{cam_id}/activate")
 async def activate_camera_api(cam_id: str):
