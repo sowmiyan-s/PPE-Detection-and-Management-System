@@ -118,6 +118,19 @@ async def ensure_db():
     except Exception as err:
         log.warning("MongoDB initialization warning (will retry on demand): %s", err)
 
+SAMPLE_PROOF_SVG = (
+    "data:image/svg+xml;utf8,"
+    "<svg xmlns='http://www.w3.org/2000/svg' width='640' height='360' viewBox='0 0 640 360'>"
+    "<rect width='100%' height='100%' fill='%23111827'/>"
+    "<rect x='180' y='50' width='280' height='250' fill='none' stroke='%23ef4444' stroke-width='3'/>"
+    "<rect x='180' y='26' width='160' height='24' fill='%23ef4444'/>"
+    "<text x='188' y='42' fill='%23ffffff' font-family='monospace' font-size='12' font-weight='bold'>AI PROOF SNAPSHOT</text>"
+    "<text x='210' y='160' fill='%23f87171' font-family='sans-serif' font-size='16' font-weight='bold'>PPE VIOLATION DETECTED</text>"
+    "<text x='210' y='190' fill='%239ca3af' font-family='sans-serif' font-size='12'>CONFIDENCE: 92% | ZONE: PLANT</text>"
+    "<text x='20' y='340' fill='%23ef4444' font-family='monospace' font-size='11'>EDGEVISION AUDIT EVIDENCE SNAPSHOT</text>"
+    "</svg>"
+)
+
 _MEM_VIOLATIONS: list[dict[str, Any]] = [
     {
         "id": "EVT-E3476F",
@@ -129,7 +142,7 @@ _MEM_VIOLATIONS: list[dict[str, Any]] = [
         "missing_ppe": ["Hard_hat", "Vest"],
         "confidence": 0.94,
         "image_path": "",
-        "image_base64": "",
+        "image_base64": SAMPLE_PROOF_SVG,
         "video_path": "",
         "model_version": "edgevision-ppe-v3.2-fp16",
         "timestamp": datetime.utcnow() - timedelta(minutes=5),
@@ -145,7 +158,7 @@ _MEM_VIOLATIONS: list[dict[str, Any]] = [
         "missing_ppe": ["Hard_hat", "Vest"],
         "confidence": 0.91,
         "image_path": "",
-        "image_base64": "",
+        "image_base64": SAMPLE_PROOF_SVG,
         "video_path": "",
         "model_version": "edgevision-ppe-v3.2-fp16",
         "timestamp": datetime.utcnow() - timedelta(minutes=15),
@@ -161,7 +174,7 @@ _MEM_VIOLATIONS: list[dict[str, Any]] = [
         "missing_ppe": ["safety_belt", "hook"],
         "confidence": 0.88,
         "image_path": "",
-        "image_base64": "",
+        "image_base64": SAMPLE_PROOF_SVG,
         "video_path": "",
         "model_version": "edgevision-ppe-v3.2-fp16",
         "timestamp": datetime.utcnow() - timedelta(minutes=30),

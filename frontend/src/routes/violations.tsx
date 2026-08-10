@@ -52,6 +52,13 @@ function Evidence({
         <img
           src={imgSrc}
           alt="Proof Evidence Snapshot"
+          onError={(e) => {
+            if (imagePath && e.currentTarget.src !== imagePath) {
+              e.currentTarget.src = imagePath;
+            } else if (imageBase64 && e.currentTarget.src !== imageBase64) {
+              e.currentTarget.src = imageBase64;
+            }
+          }}
           className="size-full object-cover transition-transform group-hover:scale-105"
         />
         {videoPath && !videoError && (
