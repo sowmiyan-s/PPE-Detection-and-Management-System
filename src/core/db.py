@@ -258,21 +258,22 @@ async def record_violation(
     await mongo_cache.invalidate_tags(["violations", "stats", "reports", "workers"])
     return evt_id
 
-async def acknowledge_violation(evt_id: str) -> bool:
-    """Mark a violation event as acknowledged."""
+async def acknowledge_violation(evt_id: str, status: str = "accepted") -> bool:
+    """Mark a violation event as accepted (confirmed real), declined (false alert), or reviewed."""
+    target_status = status if status in ("accepted", "declined", "reviewed", "unacknowledged") else "accepted"
     for v in _MEM_VIOLATIONS:
         if v.get("id") == evt_id:
-            v["acknowledgement_status"] = "reviewed"
+            v["acknowledgement_status"] = target_status
     await mongo_cache.invalidate_tags(["violations", "stats", "reports", "workers"])
     try:
         db = get_db()
         result = await db.violation_events.update_one(
             {"id": evt_id},
-            {"$set": {"acknowledgement_status": "reviewed"}}
+            {"$set": {"acknowledgement_status": target_status}}
         )
-        return result.modified_count > 0
+        return result.modified_count > 0 or result.matched_count > 0
     except Exception as e:
-        log.error("Failed to acknowledge violation %s: %s", evt_id, e)
+        log.error("Failed to update status for violation %s to %s: %s", evt_id, target_status, e)
         return False
 
 async def delete_violation(evt_id: str) -> bool:
@@ -776,9 +777,11 @@ async def get_filtered_violations(
             query["worker_track_id"] = worker_id
 
         if status == "unacknowledged":
-            query["acknowledgement_status"] = {"$ne": "reviewed"}
-        elif status == "reviewed":
-            query["acknowledgement_status"] = "reviewed"
+            query["acknowledgement_status"] = {"$nin": ["accepted", "reviewed", "declined"]}
+        elif status in ("accepted", "reviewed"):
+            query["acknowledgement_status"] = {"$in": ["accepted", "reviewed"]}
+        elif status == "declined":
+            query["acknowledgement_status"] = "declined"
 
         now = datetime.utcnow()
         if date_range == "daily":
@@ -815,9 +818,12 @@ async def get_filtered_violations(
                 continue
             if worker_id and worker_id != "all" and d.get("worker_track_id") != worker_id:
                 continue
-            if status == "unacknowledged" and d.get("acknowledgement_status") == "reviewed":
+            v_stat = d.get("acknowledgement_status", "unacknowledged")
+            if status == "unacknowledged" and v_stat in ("accepted", "reviewed", "declined"):
                 continue
-            if status == "reviewed" and d.get("acknowledgement_status") != "reviewed":
+            if status in ("accepted", "reviewed") and v_stat not in ("accepted", "reviewed"):
+                continue
+            if status == "declined" and v_stat != "declined":
                 continue
             events.append(d)
         events = events[:limit]
@@ -830,6 +836,7 @@ async def get_filtered_violations(
         else:
             ts_str = str(ts)
 
+        v_status = d.get("acknowledgement_status", "unacknowledged")
         res.append({
             "id": d.get("id"),
             "zoneId": d.get("zone_id", ""),
@@ -841,8 +848,9 @@ async def get_filtered_violations(
             "timestamp": ts_str,
             "imagePath": d.get("image_path", ""),
             "videoPath": d.get("video_path", ""),
-            "status": d.get("acknowledgement_status", "unacknowledged"),
-            "acknowledged": d.get("acknowledgement_status") == "reviewed",
+            "status": v_status,
+            "acknowledged": v_status in ("accepted", "reviewed"),
+            "declined": v_status == "declined",
             "cameraId": d.get("camera_id", "CAM-01")
         })
     return res

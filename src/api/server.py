@@ -408,11 +408,21 @@ async def get_violations_api(
     )
     return JSONResponse(violations)
 
+@app.post("/api/violations/{evt_id}/status")
+@app.patch("/api/violations/{evt_id}/status")
+async def update_violation_status_api(evt_id: str, body: dict | None = None):
+    """Explicitly set violation status to 'accepted' (Confirmed Real) or 'declined' (False Alert)."""
+    status = (body or {}).get("status", "accepted")
+    ok = await db.acknowledge_violation(evt_id, status=status)
+    return JSONResponse({"success": ok, "id": evt_id, "status": status})
+
 @app.post("/api/violations/{evt_id}/acknowledge")
 @app.patch("/api/violations/{evt_id}/acknowledge")
-async def acknowledge_violation_api(evt_id: str):
-    ok = await db.acknowledge_violation(evt_id)
-    return JSONResponse({"success": ok, "id": evt_id})
+async def acknowledge_violation_api(evt_id: str, body: dict | None = None):
+    """Mark a violation event as accepted or acknowledged."""
+    status = (body or {}).get("status", "accepted")
+    ok = await db.acknowledge_violation(evt_id, status=status)
+    return JSONResponse({"success": ok, "id": evt_id, "status": status})
 
 @app.delete("/api/violations/{evt_id}")
 async def delete_violation_api(evt_id: str):
@@ -601,6 +611,14 @@ async def export_csv_api(
         for v in violations:
             missing_items = ", ".join(v.get("missing", [])) or "None"
             detected_items = ", ".join(v.get("detected", [])) or "None"
+            stat_val = v.get("status", "unacknowledged")
+            if stat_val in ("accepted", "reviewed"):
+                status_str = "Confirmed Real Violation"
+            elif stat_val == "declined":
+                status_str = "Declined (False Alert)"
+            else:
+                status_str = "Pending Review"
+
             rows.append({
                 "Event ID": v.get("id"),
                 "Date & Time": v.get("timestamp"),
@@ -610,7 +628,7 @@ async def export_csv_api(
                 "Violated Stuff (Missing PPE)": missing_items,
                 "Detected PPE": detected_items,
                 "Confidence %": f"{v.get('confidence', 0.0)*100:.1f}%",
-                "Review Status": "Acknowledged" if v.get("acknowledged") else "Unacknowledged"
+                "Review Status": status_str
             })
 
         df = pd.DataFrame(rows if rows else [{
@@ -659,6 +677,14 @@ async def export_excel_api(
         for v in violations:
             missing_items = ", ".join(v.get("missing", [])) or "None"
             detected_items = ", ".join(v.get("detected", [])) or "None"
+            stat_val = v.get("status", "unacknowledged")
+            if stat_val in ("accepted", "reviewed"):
+                status_str = "Confirmed Real Violation"
+            elif stat_val == "declined":
+                status_str = "Declined (False Alert)"
+            else:
+                status_str = "Pending Review"
+
             data.append({
                 "Event ID": v.get("id"),
                 "Date & Time": v.get("timestamp"),
@@ -668,7 +694,7 @@ async def export_excel_api(
                 "Violated Stuff (Missing PPE)": missing_items,
                 "Detected PPE": detected_items,
                 "Confidence %": f"{v.get('confidence', 0.0)*100:.1f}%",
-                "Review Status": "Acknowledged" if v.get("acknowledged") else "Unacknowledged"
+                "Review Status": status_str
             })
 
         df = pd.DataFrame(data if data else [{
@@ -678,16 +704,18 @@ async def export_excel_api(
         }])
 
         total_count = len(violations)
-        unacked_count = sum(1 for v in violations if not v.get("acknowledged"))
-        acked_count = total_count - unacked_count
+        confirmed_real_count = sum(1 for v in violations if v.get("status") in ("accepted", "reviewed"))
+        declined_false_count = sum(1 for v in violations if v.get("status") == "declined")
+        pending_review_count = total_count - confirmed_real_count - declined_false_count
         unique_workers = len(set(v.get("workerId") for v in violations if v.get("workerId")))
 
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             summary_data = [
-                {"Executive Metric": "Total Recorded Incidents", "Value": total_count},
-                {"Executive Metric": "Unacknowledged Violations", "Value": unacked_count},
-                {"Executive Metric": "Reviewed / Acknowledged", "Value": acked_count},
+                {"Executive Metric": "Total Events Recorded", "Value": total_count},
+                {"Executive Metric": "Confirmed Real Violations", "Value": confirmed_real_count},
+                {"Executive Metric": "Declined False Alerts", "Value": declined_false_count},
+                {"Executive Metric": "Pending Review", "Value": pending_review_count},
                 {"Executive Metric": "Unique Workers Tracked", "Value": unique_workers},
                 {"Executive Metric": "Date Range Filter", "Value": date_range},
                 {"Executive Metric": "Zone Filter", "Value": zone_id},
