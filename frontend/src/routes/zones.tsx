@@ -32,7 +32,7 @@ const CONFIGURABLE_PPE: PpeKey[] = [
   "goggles",
   "ear-mufs",
   "face-guard",
-  "harness",
+  "safety_belt",
   "lanyard",
   "hook",
 ];
@@ -231,12 +231,6 @@ function ZonesPage() {
                     {CONFIGURABLE_PPE.filter((k) => z.required[k]).length} rules active
                   </span>
                 </div>
-
-                {savedZoneId === z.id && (
-                  <div className="mt-3 rounded border border-success/40 bg-success/15 px-3 py-2 text-xs font-semibold text-success flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
-                    <span>✓ Zone rule settings updated & active for live stream!</span>
-                  </div>
-                )}
 
                 <div className="mt-4 grid gap-2 sm:grid-cols-2">
                   {CONFIGURABLE_PPE.map((k) => (
