@@ -25,6 +25,7 @@ import uuid
 from contextlib import asynccontextmanager
 
 import cv2
+import numpy as np
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse

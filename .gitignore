@@ -49,9 +49,7 @@ database/evidence/
 node_modules/
 
 # Models
-*.pt
-*.engine
-*.onnx
+
 
 # Testing and benchmarks
 .pytest_cache/
