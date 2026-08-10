@@ -660,11 +660,20 @@ async def get_stats() -> dict[str, Any]:
 _MEM_CAMERAS: list[dict] = [
     {
         "id": "CAM-01",
-        "name": "EdgeVision Live AI Stream",
+        "name": "EdgeVision Primary Camera",
         "source": "0",
         "location": "Main entrance",
         "is_active": 1,
-        "zone_id": "ZONE-01",
+        "zone_id": "general_plant",
+        "target_fps": 20
+    },
+    {
+        "id": "CAM-RTSP-WEBCAM",
+        "name": "Live RTSP MediaMTX WebCam Stream",
+        "source": "rtsp://localhost:8554/cam",
+        "location": "Plant Area (RTSP TCP Stream)",
+        "is_active": 1,
+        "zone_id": "general_plant",
         "target_fps": 20
     }
 ]
