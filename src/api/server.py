@@ -37,12 +37,14 @@ from src.core import db
 from src.core.cache import mongo_cache
 from src.api.models import ZoneCreate, CameraCreate
 
+import threading
+
 log = logging.getLogger(__name__)
 
 # ── Global state ───────────────────────────────────────────────────────────────
 
 pipeline: VisionPipeline | None = None
-camera:   cv2.VideoCapture | None = None
+camera:   ThreadedCamera | None = None
 _active_zone = config.DEFAULT_ZONE
 _active_camera_id = "CAM-01"
 _fps_stats: dict = {"fps": 0.0, "frame_count": 0, "start_time": time.time()}
@@ -53,46 +55,127 @@ _fps_stats: dict = {"fps": 0.0, "frame_count": 0, "start_time": time.time()}
 def open_camera_source(source: str) -> cv2.VideoCapture:
     """Helper to open webcam indices, RTSP URLs, HTTP video feeds, or YouTube streams with RTSP TCP transport & retry logic."""
     src_str = str(source).strip()
+    cap = None
     if src_str.isdigit():
         idx = int(src_str)
         # On Windows, try DirectShow (CAP_DSHOW) first, then fall back to default backend
         cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
         if not cap.isOpened():
             cap = cv2.VideoCapture(idx)
-        return cap
-    
-    if "youtube.com" in src_str or "youtu.be" in src_str:
+    elif "youtube.com" in src_str or "youtu.be" in src_str:
         try:
             from cap_from_youtube import cap_from_youtube
-            return cap_from_youtube(src_str, "720p")
+            cap = cap_from_youtube(src_str, "720p")
         except Exception:
             pass
-        try:
-            import yt_dlp
-            ydl_opts = {"format": "best[ext=mp4]", "quiet": True}
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(src_str, download=False)
-                url = info.get("url", src_str)
-            return cv2.VideoCapture(url)
-        except Exception as e:
-            log.warning("Failed to extract youtube stream: %s", e)
-    
-    # Configure OpenCV FFmpeg to use RTSP over TCP (avoids UDP packet drop timeouts)
-    if src_str.lower().startswith(("rtsp://", "rtsps://", "http://", "https://")):
+        if cap is None or not cap.isOpened():
+            try:
+                import yt_dlp
+                ydl_opts = {"format": "best[ext=mp4]", "quiet": True}
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(src_str, download=False)
+                    url = info.get("url", src_str)
+                cap = cv2.VideoCapture(url)
+            except Exception as e:
+                log.warning("Failed to extract youtube stream: %s", e)
+    elif src_str.lower().startswith(("rtsp://", "rtsps://", "http://", "https://")):
         os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|timeout;5000000"
         for attempt in range(3):
             try:
                 cap = cv2.VideoCapture(src_str, cv2.CAP_FFMPEG)
                 if cap.isOpened():
                     log.info("Successfully opened RTSP/network camera stream (attempt %d): %s", attempt + 1, src_str)
-                    return cap
+                    break
             except Exception as err:
                 log.warning("FFmpeg RTSP attempt %d error for %s: %s", attempt + 1, src_str, err)
             time.sleep(0.2)
 
-    # General fallback for video files or other string sources
-    cap = cv2.VideoCapture(src_str)
+    if cap is None or not cap.isOpened():
+        cap = cv2.VideoCapture(src_str)
+
+    if cap and cap.isOpened():
+        try:
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        except Exception:
+            pass
+
     return cap
+
+
+class ThreadedCamera:
+    """
+    High-performance threaded camera frame grabber.
+    Runs a dedicated background thread that continuously grabs frames from OpenCV VideoCapture,
+    draining internal hardware buffers so read() ALWAYS returns the freshest real-time frame
+    without stalling or lagging.
+    """
+    def __init__(self, source: str) -> None:
+        self.source = str(source).strip()
+        self.cap: cv2.VideoCapture | None = None
+        self.latest_frame: np.ndarray | None = None
+        self.is_running: bool = False
+        self.lock = threading.Lock()
+        self.thread: threading.Thread | None = None
+        self._open(self.source)
+
+    def _open(self, source: str) -> None:
+        self.cap = open_camera_source(source)
+        if self.cap and self.cap.isOpened():
+            if str(source).isdigit():
+                if not config.IS_GPU_AVAILABLE:
+                    self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                    self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                else:
+                    self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.FRAME_WIDTH)
+                    self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.FRAME_HEIGHT)
+
+            self.is_running = True
+            self.thread = threading.Thread(target=self._reader_loop, daemon=True)
+            self.thread.start()
+
+    def _reader_loop(self) -> None:
+        while self.is_running and self.cap and self.cap.isOpened():
+            ok, frame = self.cap.read()
+            if ok:
+                with self.lock:
+                    self.latest_frame = frame
+            else:
+                src_str = str(self.source).lower()
+                if not src_str.isdigit() and not src_str.startswith(("rtsp://", "rtsps://", "http://", "https://")):
+                    try:
+                        self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    except Exception:
+                        pass
+                time.sleep(0.01)
+
+    def read(self) -> tuple[bool, np.ndarray | None]:
+        with self.lock:
+            if self.latest_frame is not None:
+                frame = self.latest_frame
+                self.latest_frame = None
+                return True, frame
+            return False, None
+
+    def isOpened(self) -> bool:
+        return bool(self.cap and self.cap.isOpened() and self.is_running)
+
+    def set(self, propId: int, value: float) -> bool:
+        if self.cap and self.cap.isOpened():
+            return self.cap.set(propId, value)
+        return False
+
+    def release(self) -> None:
+        self.is_running = False
+        if self.thread and self.thread.is_alive() and self.thread != threading.current_thread():
+            self.thread.join(timeout=1.0)
+        if self.cap:
+            try:
+                self.cap.release()
+            except Exception:
+                pass
+            self.cap = None
+        with self.lock:
+            self.latest_frame = None
 
 
 class ConnectionManager:
@@ -141,19 +224,16 @@ async def lifespan(app: FastAPI):
 
     try:
         pipeline = VisionPipeline(zone=_active_zone)
-        camera   = open_camera_source(str(config.DEFAULT_CAMERA_INDEX))
+        camera   = ThreadedCamera(str(config.DEFAULT_CAMERA_INDEX))
         if not camera.isOpened():
             log.warning("Physical webcam %s not available – falling back to sample video feed",
                         config.DEFAULT_CAMERA_INDEX)
             sample_video = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "sample_feed.mp4")
             if os.path.exists(sample_video):
-                camera = open_camera_source(sample_video)
+                camera = ThreadedCamera(sample_video)
                 log.info("Loaded sample video feed from %s", sample_video)
             else:
                 log.error("Sample video feed not found at %s", sample_video)
-        else:
-            camera.set(cv2.CAP_PROP_FRAME_WIDTH,  config.FRAME_WIDTH)
-            camera.set(cv2.CAP_PROP_FRAME_HEIGHT, config.FRAME_HEIGHT)
             
         asyncio.create_task(vision_loop())
         asyncio.create_task(_evidence_worker())
@@ -271,26 +351,16 @@ async def vision_loop() -> None:
         if camera is None or not camera.isOpened() or pipeline is None:
             if _active_source and (camera is None or not camera.isOpened()):
                 try:
-                    camera = open_camera_source(_active_source)
+                    camera = ThreadedCamera(_active_source)
                 except Exception:
                     pass
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.1)
             continue
 
         ok, frame = camera.read()
-        if not ok:
-            # Loop video stream back to beginning if end of file reached
-            camera.set(cv2.CAP_PROP_POS_FRAMES, 0)
-            ok, frame = camera.read()
-            if not ok:
-                if _active_source:
-                    try:
-                        log.info("Continuous Loop: Re-opening stream source %s", _active_source)
-                        camera = open_camera_source(_active_source)
-                    except Exception as err:
-                        log.warning("Re-open source failed: %s", err)
-                await asyncio.sleep(0.5)
-                continue
+        if not ok or frame is None:
+            await asyncio.sleep(0.01)
+            continue
 
         try:
             annotated, workers = await asyncio.get_event_loop().run_in_executor(
@@ -591,20 +661,20 @@ async def activate_camera_api(cam_id: str):
         
     log.info("Switching active camera to %s (source: %s, zone: %s)", cam_id, source, _active_zone)
     
-    new_cam = open_camera_source(str(source))
+    new_cam = ThreadedCamera(str(source))
     if not new_cam.isOpened():
         return JSONResponse({"error": f"Failed to open source: {source}"}, status_code=400)
-    
-    new_cam.set(cv2.CAP_PROP_FRAME_WIDTH, config.FRAME_WIDTH)
-    new_cam.set(cv2.CAP_PROP_FRAME_HEIGHT, config.FRAME_HEIGHT)
     
     old_cam = camera
     camera = new_cam
     _active_camera_id = cam_id
     _active_source = str(source)
     _fps_stats = {"fps": 0.0, "frame_count": 0, "start_time": time.time()}
-    if old_cam and old_cam.isOpened():
-        old_cam.release()
+    if old_cam:
+        try:
+            old_cam.release()
+        except Exception:
+            pass
         
     return JSONResponse({"success": True, "activeCameraId": cam_id})
 
