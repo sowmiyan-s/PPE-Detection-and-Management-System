@@ -1317,4 +1317,7 @@ async def websocket_endpoint(ws: WebSocket):
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    uvicorn.run("src.api.server:app", host=config.SERVER_HOST, port=config.SERVER_PORT, reload=True)
+    port = int(os.getenv("PORT", config.SERVER_PORT))
+    is_render = os.getenv("RENDER") is not None
+    uvicorn.run("src.api.server:app", host=config.SERVER_HOST, port=port, reload=not is_render)
+

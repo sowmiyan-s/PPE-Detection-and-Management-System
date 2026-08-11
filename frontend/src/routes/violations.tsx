@@ -35,9 +35,9 @@ function Evidence({
   missing,
   onOpenPreview,
 }: {
-  imagePath?: string;
-  imageBase64?: string;
-  videoPath?: string;
+  imagePath?: string | undefined;
+  imageBase64?: string | undefined;
+  videoPath?: string | undefined;
   missing: string[];
   onOpenPreview: () => void;
 }) {
