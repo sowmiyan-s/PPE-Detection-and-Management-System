@@ -213,10 +213,16 @@ class ThreadedCamera:
                     if not self.cap.isOpened():
                         self.is_offline = True
                         continue
-                    ok, frame = self.cap.read()
-                    if ok and frame is not None:
-                        with self.lock:
-                            self.latest_frame = frame
+                    
+                    # Zero-Lag Buffer Flush: continuously grab latest frame and discard old queued frames
+                    grabbed = self.cap.grab()
+                    if grabbed:
+                        ok, frame = self.cap.retrieve()
+                        if ok and frame is not None:
+                            with self.lock:
+                                self.latest_frame = frame
+                        else:
+                            time.sleep(0.005)
                     else:
                         src_str = str(self.source).lower()
                         is_yt = "youtube.com" in src_str or "youtu.be" in src_str
@@ -384,25 +390,41 @@ async def lifespan(app: FastAPI):
             log.warning("MongoDB camera query timeout/fallback: %s", cam_err)
             db_cameras = db._MEM_CAMERAS
 
-        # PROBE DEFAULT WEBCAM IF SETTING IS ENABLED
+        # Model Warmup to eliminate first-frame inference delay
+        try:
+            from src.core.vision_pipeline import VisionPipeline
+            dummy_pipe = VisionPipeline(zone=config.DEFAULT_ZONE)
+            dummy_img = np.zeros((480, 640, 3), dtype=np.uint8)
+            dummy_pipe.process_frame(dummy_img)
+            log.info("YOLO Model pre-warmup completed successfully.")
+        except Exception as warmup_err:
+            log.debug("Model warmup warning: %s", warmup_err)
+
+        # PROBE WEBCAMS (Default Index 0 or External Connected Cameras 1, 2...)
         default_cam_ok = False
+        working_webcam_idx = "0"
         if _show_main_webcam:
             import cv2
-            for backend in [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY]:
-                try:
-                    probe_cap = cv2.VideoCapture(0, backend)
-                    if probe_cap and probe_cap.isOpened():
-                        ok, _ = probe_cap.read()
-                        if ok:
-                            default_cam_ok = True
-                        probe_cap.release()
-                        if default_cam_ok:
-                            break
-                except Exception:
-                    pass
+            for idx in range(4):
+                for backend in [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY]:
+                    try:
+                        probe_cap = cv2.VideoCapture(idx, backend)
+                        if probe_cap and probe_cap.isOpened():
+                            ok, test_f = probe_cap.read()
+                            if ok and test_f is not None:
+                                default_cam_ok = True
+                                working_webcam_idx = str(idx)
+                                probe_cap.release()
+                                break
+                            probe_cap.release()
+                    except Exception:
+                        pass
+                if default_cam_ok:
+                    log.info("Active physical webcam discovered at index %s", working_webcam_idx)
+                    break
 
             if not default_cam_ok:
-                log.warning("Default webcam (source 0) is busy or unavailable. Skipping default webcam.")
+                log.warning("No physical hardware webcam found on indices 0-3. Stream pipelines will use synthetic / link sources.")
         else:
             log.info("Main PC webcam disabled by user setting; skipping webcam probe.")
 
@@ -411,8 +433,13 @@ async def lifespan(app: FastAPI):
             source = str(cam.get("source") or cam.get("streamUrl") or config.DEFAULT_CAMERA_SOURCE)
             zone = cam.get("zone_id") or cam.get("zoneId") or config.DEFAULT_ZONE
 
-            if source == "0" and (not _show_main_webcam or not default_cam_ok):
-                log.info("Skipping default camera %s from DB (webcam unavailable or disabled by setting)", cam_id)
+            # Fallback to discovered external webcam if camera source is '0' but index 0 was missing
+            if source == "0" and default_cam_ok and working_webcam_idx != "0":
+                source = working_webcam_idx
+                log.info("Re-routed camera %s to discovered external webcam index %s", cam_id, source)
+
+            if (source == "0" or source.isdigit()) and (not _show_main_webcam or not default_cam_ok):
+                log.info("Skipping webcam camera %s from DB (webcam unavailable or disabled by setting)", cam_id)
                 continue
 
             start_camera_pipeline(cam_id, source, zone)
@@ -1049,6 +1076,20 @@ async def activate_camera_api(cam_id: str):
     })
 
     return JSONResponse({"success": True, "activeCameraId": cam_id})
+
+@app.post("/api/cameras/{cam_id}/deactivate")
+async def deactivate_camera_api(cam_id: str):
+    """Deactivate camera stream (Turn OFF): stop vision pipeline and update DB status."""
+    await db.update_camera(cam_id, {"is_active": 0})
+    stop_camera_pipeline(cam_id)
+
+    await manager.broadcast_json({
+        "type": "camera_switched",
+        "activeCameraId": cam_id,
+        "id": cam_id
+    })
+
+    return JSONResponse({"success": True, "id": cam_id, "is_active": 0})
 
 import io
 import csv

@@ -1,7 +1,7 @@
 [
   {
-    "id": "CAM-2F46",
-    "name": "WEB CAM 1",
+    "id": "CAM-6522",
+    "name": "Local Webcam (Index 0)",
     "source": "0",
     "streamUrl": "0",
     "type": "webcam",
@@ -11,14 +11,47 @@
     "target_fps": 20
   },
   {
-    "id": "CAM-9A2B",
+    "id": "CAM-F15A",
     "name": "RTSP Camera Feed",
     "source": "https://www.youtube.com/watch?v=M3EYAY2MftI",
     "streamUrl": "https://www.youtube.com/watch?v=M3EYAY2MftI",
+    "type": "stream",
+    "location": "",
+    "is_active": 1,
+    "zone_id": "ZONE-AE01",
+    "target_fps": 20
+  },
+  {
+    "id": "CAM-2EA8",
+    "name": "RTSP Camera sample",
+    "source": "https://www.youtube.com/watch?v=beHMAngdGxU",
+    "streamUrl": "https://www.youtube.com/watch?v=beHMAngdGxU",
     "type": "youtube",
     "location": "",
     "is_active": 1,
-    "zone_id": "ZONE-04",
+    "zone_id": "ZONE-03",
+    "target_fps": 20
+  },
+  {
+    "id": "CAM-79C7",
+    "name": "RTSP Camera Feed",
+    "source": "https://youtube.com/live/dS7m1kPRgzY",
+    "streamUrl": "https://youtube.com/live/dS7m1kPRgzY",
+    "type": "stream",
+    "location": "",
+    "is_active": 1,
+    "zone_id": "ZONE-02",
+    "target_fps": 20
+  },
+  {
+    "id": "CAM-73CD",
+    "name": "Local Webcam (Index 1)",
+    "source": "1",
+    "streamUrl": "1",
+    "type": "webcam",
+    "location": "",
+    "is_active": 1,
+    "zone_id": "general_plant",
     "target_fps": 20
   }
 ]

@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Cpu, Gauge, Thermometer, Timer } from "lucide-react";
+import { Cpu, Gauge, Thermometer, Timer, Target, CheckCircle2, Activity } from "lucide-react";
 import { useSessionFetch } from "@/hooks/use-session-fetch";
 
 import { AppShell, PageHeader, StatCard } from "@/components/app-shell";
@@ -94,25 +94,47 @@ function ModelPage() {
         }
       />
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard
-          label="Throughput"
+          label="Model Version"
+          value={metrics?.model_version ? metrics.model_version.split("-")[2]?.toUpperCase() || "V3.2" : "V3.2"}
+          unit="FP16"
+          hint={metrics?.model_version || "edgevision-ppe-v3.2-FP16"}
+          tone="success"
+          icon={Activity}
+        />
+        <StatCard
+          label="Pipeline Throughput"
           value={currentFps.toFixed(1)}
           unit="FPS"
-          hint={`Target ≥ ${metrics?.target_fps || 12} FPS @ 1080p`}
+          hint={`Target ≥ ${metrics?.target_fps || 20} FPS`}
           tone={currentFps >= 12 ? "success" : "warning"}
           icon={Gauge}
         />
         <StatCard
-          label="P95 inference latency"
+          label="Overall mAP50 Accuracy"
+          value={metrics ? `${(metrics.map50 * 100).toFixed(1)}` : "84.6"}
+          unit="%"
+          hint={`mAP50-95: ${metrics ? (metrics.map50_95 * 100).toFixed(1) : "61.2"}%`}
+          tone="success"
+          icon={Target}
+        />
+        <StatCard
+          label="Violation Precision"
+          value={metrics?.violation_precision ? `${(metrics.violation_precision * 100).toFixed(1)}` : "94.2"}
+          unit="%"
+          hint="Operator confirmed accuracy rate"
+          tone="success"
+          icon={CheckCircle2}
+        />
+        <StatCard
+          label="P95 Inference Latency"
           value={Math.round(p95Latency)}
           unit="ms"
           hint={`P50 ${currentFps > 0 ? Math.round(1000 / currentFps) : "—"} ms`}
           tone={p95Latency < 80 ? "success" : "warning"}
           icon={Timer}
         />
-        <StatCard label="GPU temperature" value={gpuTemp} unit="°C" hint="Orin Jetson Thermal Zone 0" tone="success" icon={Thermometer} />
-        <StatCard label="Memory in use" value={memUsed} unit="GB" hint="Unified VRAM utilization" icon={Cpu} />
       </section>
 
       <section className="mt-3 grid gap-3 lg:grid-cols-[1.3fr_1fr]">

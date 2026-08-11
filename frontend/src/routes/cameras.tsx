@@ -184,20 +184,21 @@ function CamerasPage() {
       .finally(() => setSubmittingEdit(false));
   };
 
-  const handleActivate = (camId: string) => {
+  const handleToggleCamera = (camId: string, isOnline: boolean) => {
     setLoadingCamId(camId);
-    fetch(`/api/cameras/${camId}/activate`, { method: "POST" })
+    const endpoint = isOnline ? `/api/cameras/${camId}/deactivate` : `/api/cameras/${camId}/activate`;
+    fetch(endpoint, { method: "POST" })
       .then((res) => {
-        if (!res.ok) throw new Error("Failed to activate camera");
+        if (!res.ok) throw new Error("Failed to toggle camera state");
         invalidateSessionCache("/api/cameras");
         refetchCameras();
         refetchAll();
         manualRefetch(true);
-        showToast("Camera stream activated successfully");
+        showToast(isOnline ? "Camera turned OFF" : "Camera turned ON — Stream Connected");
       })
       .catch((err) => {
-        console.error("Failed to activate camera", err);
-        showToast("Failed to activate camera");
+        console.error("Failed to toggle camera", err);
+        showToast("Failed to toggle camera state");
       })
       .finally(() => setLoadingCamId(null));
   };
@@ -467,16 +468,23 @@ function CamerasPage() {
                       <StatusDot status={c.status} />
                     </td>
                     <td className="px-3 py-2.5 text-right flex items-center justify-end gap-1.5">
-                      {c.status !== "online" && (
-                        <button
-                          onClick={() => handleActivate(c.id)}
-                          disabled={loadingCamId === c.id}
-                          className="display-title inline-flex items-center gap-1 rounded border border-primary/20 bg-primary/10 px-2 py-1 text-[10px] text-primary hover:bg-primary hover:text-primary-foreground transition-colors disabled:opacity-50"
-                        >
-                          {loadingCamId === c.id ? <Loader2 className="size-3 animate-spin" /> : null}
-                          Reconnect Feed
-                        </button>
-                      )}
+                      <button
+                        onClick={() => handleToggleCamera(c.id, c.status === "online")}
+                        disabled={loadingCamId === c.id}
+                        className={`display-title inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-[10px] font-bold tracking-wider transition-colors cursor-pointer disabled:opacity-50 ${
+                          c.status === "online"
+                            ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 hover:bg-emerald-500/30"
+                            : "bg-muted/80 text-muted-foreground border border-border hover:bg-accent hover:text-foreground"
+                        }`}
+                        title={c.status === "online" ? "Click to Turn Camera OFF" : "Click to Turn Camera ON"}
+                      >
+                        {loadingCamId === c.id ? (
+                          <Loader2 className="size-3 animate-spin" />
+                        ) : (
+                          <span className={`size-2 rounded-full ${c.status === "online" ? "bg-emerald-400 animate-pulse" : "bg-muted-foreground"}`} />
+                        )}
+                        {c.status === "online" ? "STREAM: ON" : "STREAM: OFF"}
+                      </button>
                       <button
                         onClick={() => openEditModal(c)}
                         title="Edit Camera Settings"

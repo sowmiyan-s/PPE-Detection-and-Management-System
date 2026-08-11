@@ -176,26 +176,45 @@ async def record_violation(
 ) -> str:
     """Record a violation event with image/video evidence directly in MongoDB.
     Deduplicates active unacknowledged violations per worker ID to prevent duplicate reports."""
-    # Deduplication Guard: Check if a duplicate violation event occurred for this worker in the same zone within cooldown window
     now_ts = datetime.utcnow()
-    cooldown_dt = now_ts - timedelta(seconds=getattr(config, "VIOLATION_COOLDOWN_SECS", 5.0))
 
+    # Active Violation Uniqueness Guard:
+    # If an unacknowledged active violation already exists for this worker with identical missing PPE,
+    # update its timestamp and evidence snapshot instead of creating a duplicate row.
+    norm_missing = sorted(missing_ppe)
     for v in _MEM_VIOLATIONS:
-        v_ts = v.get("timestamp")
-        if isinstance(v_ts, datetime) and v_ts >= cooldown_dt:
-            if v.get("worker_track_id") == worker_id and set(v.get("missing_ppe", [])) == set(missing_ppe):
-                log.info("Skipping duplicate violation within cooldown window for worker %s", worker_id)
-                return v["id"]
+        if (
+            v.get("worker_track_id") == worker_id
+            and sorted(v.get("missing_ppe", [])) == norm_missing
+            and v.get("acknowledgement_status") == "unacknowledged"
+        ):
+            v["timestamp"] = now_ts
+            v["confidence"] = confidence
+            if image_path: v["image_path"] = image_path
+            if image_base64: v["image_base64"] = image_base64
+            if video_path: v["video_path"] = video_path
+            log.info("Updated existing active violation %s for worker %s", v["id"], worker_id)
+            return v["id"]
 
     try:
         database = get_db()
         existing_doc = await database.violation_events.find_one({
             "worker_track_id": worker_id,
             "missing_ppe": list(missing_ppe),
-            "timestamp": {"$gte": cooldown_dt}
+            "acknowledgement_status": "unacknowledged"
         })
         if existing_doc:
-            log.info("Skipping duplicate DB record within cooldown window for worker %s", worker_id)
+            await database.violation_events.update_one(
+                {"id": existing_doc["id"]},
+                {"$set": {
+                    "timestamp": now_ts,
+                    "confidence": confidence,
+                    "image_path": image_path or existing_doc.get("image_path", ""),
+                    "image_base64": image_base64 or existing_doc.get("image_base64", ""),
+                    "video_path": video_path or existing_doc.get("video_path", "")
+                }}
+            )
+            log.info("Updated active DB violation record %s for worker %s", existing_doc["id"], worker_id)
             return existing_doc["id"]
     except Exception:
         pass

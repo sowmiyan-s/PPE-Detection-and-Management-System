@@ -34,7 +34,7 @@ from src.core import config
 from src.core.association import associate_ppe_to_persons
 from src.core.publisher import PPEMqttPublisher
 from src.core.rule_engine import RuleEngine
-from src.core.worker_tracker import WorkerTracker, POSITIVE_PPE
+from src.core.worker_tracker import WorkerTracker, POSITIVE_PPE, WorkerReIDGallery
 from src.core.temporal_validator import TemporalValidator
 
 log = logging.getLogger(__name__)
@@ -96,6 +96,7 @@ class PPEDetector:
         self._publisher = PPEMqttPublisher(broker=broker, port=port, topic=topic)
         self._rule_engine = RuleEngine()
         self._worker_tracker = WorkerTracker()
+        self._reid_gallery = WorkerReIDGallery(ttl_seconds=1800.0, match_threshold=0.68)
         self._temporal_validator = TemporalValidator()
         self._lock = threading.Lock()
         
@@ -296,17 +297,24 @@ class PPEDetector:
                 elif raw_id is not None and raw_id > 0 and raw_id not in used_memory_ids:
                     assigned_id = raw_id
                 else:
+                    while self._next_synthetic_id in self._track_memory or self._next_synthetic_id in used_memory_ids:
+                        self._next_synthetic_id += 1
                     assigned_id = self._next_synthetic_id
                     self._next_synthetic_id += 1
 
-            used_memory_ids.add(assigned_id)
-            self._track_memory[assigned_id] = {
+            # Match against visual Re-ID gallery to persist worker ID across long (5+ min) time gaps
+            # Pass exclude_ids=used_memory_ids so no two persons in the frame share the same worker ID
+            import time as _t
+            final_id = self._reid_gallery.match_or_register(assigned_id, frame, box, _t.time(), exclude_ids=used_memory_ids)
+
+            used_memory_ids.add(final_id)
+            self._track_memory[final_id] = {
                 "box": box,
                 "last_frame": self._frame_count,
             }
 
             persons.append({
-                "id":         assigned_id,
+                "id":         final_id,
                 "box":        box,
                 "class_name": "person",
                 "confidence": rp["confidence"],

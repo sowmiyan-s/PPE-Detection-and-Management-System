@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { Check, ShieldAlert, Image as ImageIcon, Trash2, History as HistoryIcon, AlertTriangle, X, Eye, XCircle, CheckCircle2, Loader2 } from "lucide-react";
+import { Check, ShieldAlert, Image as ImageIcon, Trash2, History as HistoryIcon, AlertTriangle, X, Eye, XCircle, CheckCircle2, Loader2, Filter, Search, RotateCcw } from "lucide-react";
 import { AppShell, PageHeader } from "@/components/app-shell";
 import { ppeLabel, formatTime, type ViolationEvent } from "@/lib/mock-data";
 import { useSessionFetch, invalidateSessionCache } from "@/hooks/use-session-fetch";
@@ -123,11 +123,17 @@ function ViolationsPage() {
   const [triageTab, setTriageTab] = useState<"unacknowledged" | "accepted" | "declined" | "all">("unacknowledged");
   const [previewMedia, setPreviewMedia] = useState<{ src: string; imgSrc?: string; isVideo: boolean; title: string } | null>(null);
 
+  // Multi-parameter filter state
+  const [filterZone, setFilterZone] = useState<string>("all");
+  const [filterPpe, setFilterPpe] = useState<string>("all");
+  const [filterScore, setFilterScore] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState<string>("");
+
   const unacknowledgedList = violationList.filter((v) => !v.acknowledged && !v.declined && v.status !== "accepted" && v.status !== "declined");
   const acceptedList = violationList.filter((v) => v.acknowledged || v.status === "accepted" || v.status === "reviewed");
   const declinedList = violationList.filter((v) => v.declined || v.status === "declined");
 
-  const displayedViolations =
+  const baseViolations =
     triageTab === "unacknowledged"
       ? unacknowledgedList
       : triageTab === "accepted"
@@ -135,6 +141,32 @@ function ViolationsPage() {
         : triageTab === "declined"
           ? declinedList
           : violationList;
+
+  // Filter by Zone, PPE, Confidence Score, and Worker ID
+  const displayedViolations = baseViolations.filter((v) => {
+    if (filterZone !== "all" && v.zoneId !== filterZone && (v as any).zone_id !== filterZone) {
+      return false;
+    }
+    if (filterPpe !== "all") {
+      const missingList = (v.missing || []).map((m) => m.toLowerCase());
+      if (!missingList.includes(filterPpe.toLowerCase())) return false;
+    }
+    if (filterScore !== "all") {
+      const conf = v.confidence || 0.0;
+      if (filterScore === "0.9" && conf < 0.9) return false;
+      if (filterScore === "0.8" && conf < 0.8) return false;
+      if (filterScore === "0.7" && conf < 0.7) return false;
+      if (filterScore === "<0.7" && conf >= 0.7) return false;
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      const matchWorker = (v.workerId || "").toLowerCase().includes(q);
+      const matchId = (v.id || "").toLowerCase().includes(q);
+      const matchType = (v.type || "").toLowerCase().includes(q);
+      if (!matchWorker && !matchId && !matchType) return false;
+    }
+    return true;
+  });
 
   const handleUpdateStatus = (id: string, newStatus: "accepted" | "declined") => {
     setLoadingActionId(id);
@@ -284,6 +316,100 @@ function ViolationsPage() {
           </div>
         </div>
       )}
+
+      {/* Multi-Parameter Filter Controls Bar */}
+      <div className="mb-4 rounded panel-surface p-3 border border-border shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-[280px]">
+            {/* Search Input */}
+            <div className="relative flex-1 min-w-[180px]">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Search Worker ID / Event..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="telemetry w-full rounded border border-input bg-background/60 pl-8 pr-3 py-1.5 text-xs outline-none focus:border-primary"
+              />
+            </div>
+
+            {/* Filter by Zone */}
+            <div className="flex items-center gap-1.5">
+              <span className="telemetry text-[11px] text-muted-foreground whitespace-nowrap">Zone:</span>
+              <select
+                value={filterZone}
+                onChange={(e) => setFilterZone(e.target.value)}
+                className="telemetry rounded border border-input bg-background/60 px-2.5 py-1.5 text-xs outline-none focus:border-primary cursor-pointer"
+              >
+                <option value="all">All Zones</option>
+                <option value="general_plant">General Plant Floor</option>
+                <option value="work_at_height">Work At Height Platform</option>
+                <option value="construction">Construction Site</option>
+                <option value="restricted_machinery">Restricted Machinery</option>
+                <option value="hazardous_material">Hazardous Material Zone</option>
+                <option value="ZONE-01">Zone 01</option>
+                <option value="ZONE-02">Zone 02</option>
+              </select>
+            </div>
+
+            {/* Filter by PPE */}
+            <div className="flex items-center gap-1.5">
+              <span className="telemetry text-[11px] text-muted-foreground whitespace-nowrap">PPE:</span>
+              <select
+                value={filterPpe}
+                onChange={(e) => setFilterPpe(e.target.value)}
+                className="telemetry rounded border border-input bg-background/60 px-2.5 py-1.5 text-xs outline-none focus:border-primary cursor-pointer"
+              >
+                <option value="all">All PPE Types</option>
+                <option value="helmet">Helmet / Hard Hat</option>
+                <option value="vest">Safety Vest</option>
+                <option value="boots">Safety Boots</option>
+                <option value="gloves">Gloves</option>
+                <option value="goggles">Safety Goggles</option>
+                <option value="mask">Face Mask</option>
+                <option value="safety_belt">Harness / Belt</option>
+                <option value="hook">Lanyard Hook</option>
+              </select>
+            </div>
+
+            {/* Filter by Score / Confidence */}
+            <div className="flex items-center gap-1.5">
+              <span className="telemetry text-[11px] text-muted-foreground whitespace-nowrap">Score:</span>
+              <select
+                value={filterScore}
+                onChange={(e) => setFilterScore(e.target.value)}
+                className="telemetry rounded border border-input bg-background/60 px-2.5 py-1.5 text-xs outline-none focus:border-primary cursor-pointer"
+              >
+                <option value="all">All Confidence Scores</option>
+                <option value="0.9">High Confidence (≥ 90%)</option>
+                <option value="0.8">Good Confidence (≥ 80%)</option>
+                <option value="0.7">Moderate Confidence (≥ 70%)</option>
+                <option value="<0.7">Low Confidence (&lt; 70%)</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Active Filter Info & Reset Button */}
+          <div className="flex items-center gap-2">
+            <span className="telemetry text-xs text-muted-foreground font-mono">
+              Showing <span className="text-foreground font-bold">{displayedViolations.length}</span> of {baseViolations.length}
+            </span>
+            {(filterZone !== "all" || filterPpe !== "all" || filterScore !== "all" || searchQuery.trim()) && (
+              <button
+                onClick={() => {
+                  setFilterZone("all");
+                  setFilterPpe("all");
+                  setFilterScore("all");
+                  setSearchQuery("");
+                }}
+                className="telemetry inline-flex items-center gap-1 rounded border border-border bg-accent/30 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              >
+                <RotateCcw className="size-3" /> Reset Filters
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
 
       <div className="space-y-3">
         {loading ? (
