@@ -27,7 +27,15 @@
     "description": "General plant area \u2013 helmet and vest required",
     "required_ppe": [
       "helmet",
-      "vest"
+      "vest",
+      "gloves",
+      "boots",
+      "goggles",
+      "ear-mufs",
+      "face-guard",
+      "safety_belt",
+      "lanyard",
+      "hook"
     ]
   },
   {
