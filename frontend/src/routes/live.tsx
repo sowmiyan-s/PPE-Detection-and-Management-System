@@ -40,13 +40,19 @@ type CameraItem = {
 };
 
 function LivePage() {
-  const [frame, setFrame] = useState<string | null>(null);
+  const [frames, setFrames] = useState<Record<string, string>>({});
   const [workers, setWorkers] = useState<WorkerState[]>([]);
-  const [fps, setFps] = useState<number>(0);
+  const [fpsMap, setFpsMap] = useState<Record<string, number>>({});
   const [zone, setZone] = useState<string>("");
   const [wsStatus, setWsStatus] = useState<"offline" | "online" | "connecting">("connecting");
 
   const [selectedCamId, setSelectedCamId] = useState<string | null>(null);
+  const selectedCamIdRef = useRef<string | null>(null);
+  
+  useEffect(() => {
+    selectedCamIdRef.current = selectedCamId;
+  }, [selectedCamId]);
+
   const [viewMode, setViewMode] = useState<"grid" | "focus">("grid");
   const [filterMode, setFilterMode] = useState<"all" | "violations" | "compliant" | "has_helmet" | "has_vest" | "has_goggles" | "has_boots" | "has_gloves">("all");
   const wsRef = useRef<WebSocket | null>(null);
@@ -55,8 +61,9 @@ function LivePage() {
 
   // Set default selected camera once we have cameras
   useEffect(() => {
-    if (cameraList.length > 0 && !selectedCamId && cameraList[0]?.id) {
-      setSelectedCamId(cameraList[0].id);
+    if (cameraList.length > 0 && !selectedCamId) {
+      const firstOnline = cameraList.find(c => c.status === "online");
+      setSelectedCamId(firstOnline ? firstOnline.id : (cameraList[0]?.id || ""));
     }
   }, [cameraList, selectedCamId]);
 
@@ -81,14 +88,22 @@ function LivePage() {
     ws.onmessage = (ev) => {
       try {
         const d = JSON.parse(ev.data);
-        if (d.frame) setFrame(d.frame);
-        if (d.fps !== undefined) setFps(d.fps);
-        if (d.zone) setZone(d.zone);
-        if (d.workers) setWorkers(d.workers);
+        
         if (["camera_added", "camera_switched", "camera_deleted", "camera_updated"].includes(d.type)) {
           fetchCameras();
           if (d.activeCameraId) {
             setSelectedCamId(d.activeCameraId);
+          }
+        } else {
+          // Normal frame payload
+          if (d.camera_id) {
+            if (d.frame) setFrames(prev => ({ ...prev, [d.camera_id]: d.frame }));
+            if (d.fps !== undefined) setFpsMap(prev => ({ ...prev, [d.camera_id]: d.fps }));
+          }
+          
+          if (d.camera_id === selectedCamIdRef.current) {
+            if (d.zone) setZone(d.zone);
+            if (d.workers) setWorkers(d.workers);
           }
         }
       } catch (err) {
@@ -174,9 +189,9 @@ function LivePage() {
                   >
                     {/* Top Status Banner */}
                     <div className="relative aspect-video bg-black/90 overflow-hidden flex items-center justify-center">
-                      {(isSelected || isLive) && frame ? (
+                      {(isSelected || isLive) && frames[cam.id] ? (
                         <img
-                          src={`data:image/jpeg;base64,${frame}`}
+                          src={`data:image/jpeg;base64,${frames[cam.id]}`}
                           alt={cam.name}
                           className="size-full object-contain"
                         />
@@ -204,7 +219,7 @@ function LivePage() {
 
                       {isSelected && (
                         <div className="absolute top-2 right-2 rounded bg-primary px-2 py-0.5 text-[10px] font-bold text-primary-foreground uppercase tracking-wider">
-                          Active Stream
+                          Focused Feed
                         </div>
                       )}
                     </div>
@@ -221,7 +236,7 @@ function LivePage() {
                       <div className="grid grid-cols-2 gap-2 text-xs telemetry bg-background/40 p-2 rounded border border-border/50">
                         <div>
                           <span className="text-muted-foreground block text-[10px]">Target FPS</span>
-                          <span className="font-semibold">{cam.targetFps} FPS</span>
+                          <span className="font-semibold">{fpsMap[cam.id] || 0} / {cam.targetFps} FPS</span>
                         </div>
                         <div>
                           <span className="text-muted-foreground block text-[10px]">Status</span>
@@ -236,7 +251,7 @@ function LivePage() {
                             onClick={() => handleActivateCam(cam.id)}
                             className="w-full flex items-center justify-center gap-1.5 rounded bg-primary/10 border border-primary/30 px-3 py-1.5 text-xs text-primary font-medium hover:bg-primary hover:text-primary-foreground transition-colors"
                           >
-                            <Play className="size-3.5" /> Set Active Stream
+                            <Play className="size-3.5" /> View Focus Feed
                           </button>
                         ) : (
                           <button
@@ -262,9 +277,9 @@ function LivePage() {
           {/* Left 2 Cols: Main Real-Time Video Monitor */}
           <div className="flex flex-col gap-3 lg:col-span-2">
             <div className="relative aspect-video overflow-hidden rounded-lg border border-border bg-black shadow-2xl">
-              {frame ? (
+              {selectedCam?.id && frames[selectedCam.id] ? (
                 <img
-                  src={`data:image/jpeg;base64,${frame}`}
+                  src={`data:image/jpeg;base64,${frames[selectedCam.id]}`}
                   alt="Live AI Inference Stream"
                   className="size-full object-contain"
                 />
@@ -280,7 +295,7 @@ function LivePage() {
               <div className="absolute left-3 top-3 flex items-center gap-2">
                 <div className="flex items-center gap-1.5 rounded bg-background/80 px-2.5 py-1 text-xs text-primary backdrop-blur border border-primary/30">
                   <Activity className="size-3.5 animate-pulse text-primary" />
-                  <span className="telemetry font-mono font-semibold">{fps.toFixed(1)} FPS</span>
+                  <span className="telemetry font-mono font-semibold">{(selectedCam?.id ? (fpsMap[selectedCam.id] || 0) : 0).toFixed(1)} FPS</span>
                 </div>
                 {zone && (
                   <div className="rounded bg-background/80 px-2.5 py-1 text-xs text-foreground backdrop-blur border border-border">

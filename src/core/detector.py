@@ -101,7 +101,7 @@ class PPEDetector:
         
         self._track_memory: dict[int, dict] = {}  # track_id -> {"box": list, "last_frame": int}
         self._frame_count: int = 0
-        self._next_synthetic_id: int = 101
+        self._next_synthetic_id: int = 1
 
         # Adaptive frame-skip cache for low-end CPU systems
         self._last_worker_states: list[dict] = []
@@ -312,10 +312,10 @@ class PPEDetector:
                 "confidence": rp["confidence"],
             })
 
-        # Clean stale tracking memory older than 90 frames (~4.5 seconds)
+        # Clean stale tracking memory older than 300 frames (~15 seconds)
         stale_ids = [
             tid for tid, tdata in self._track_memory.items()
-            if self._frame_count - tdata["last_frame"] > 90
+            if self._frame_count - tdata["last_frame"] > 300
         ]
         for tid in stale_ids:
             del self._track_memory[tid]
@@ -399,6 +399,37 @@ class PPEDetector:
     # ── Drawing helpers ────────────────────────────────────────────────────────
 
     @staticmethod
+    def _draw_badge(
+        frame:      np.ndarray,
+        text:       str,
+        pos:        tuple[int, int],
+        bg_color:   tuple[int, int, int],
+        text_color: tuple[int, int, int] = (255, 255, 255),
+        scale:      float = 0.45,
+        thick:      int = 1
+    ) -> None:
+        x, y = pos
+        (tw, th), baseline = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, thick)
+        pad = 3
+        cv2.rectangle(
+            frame,
+            (x, max(0, y - th - pad * 2)),
+            (x + tw + pad * 2, y + baseline),
+            bg_color,
+            -1
+        )
+        cv2.putText(
+            frame,
+            text,
+            (x + pad, y - pad),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            scale,
+            text_color,
+            thick,
+            lineType=cv2.LINE_AA
+        )
+
+    @staticmethod
     def _draw_person(
         frame:       np.ndarray,
         person:      dict,
@@ -407,30 +438,91 @@ class PPEDetector:
         ppes:        list[dict],
     ) -> None:
         x1, y1, x2, y2 = map(int, person["box"])
-        colour = COMPLIANCE_COLOURS[compliant]
-        cv2.rectangle(frame, (x1, y1), (x2, y2), colour, 2)
+        w_id = person.get("id", 1)
 
-        label = f"Worker-{person['id']}"
         if compliant:
-            status = "COMPLIANT"
+            # Draw GREEN box & banner for COMPLIANT worker with met constraints
+            colour = (0, 200, 0)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), colour, 2)
+            banner_y1 = max(0, y1 - 24) if y1 >= 24 else y1
+            banner_y2 = y1 if y1 >= 24 else y1 + 24
+            cv2.rectangle(frame, (x1, banner_y1), (x2, banner_y2), colour, -1)
+            cv2.putText(frame, f"WORKER-{w_id} | COMPLIANT", (x1 + 6, max(14, banner_y2 - 6)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.48, (255, 255, 255), 2, cv2.LINE_AA)
         else:
-            status = "MISSING: " + ", ".join(sorted(missing_ppe))
+            # Draw RED box & header banner for NON-COMPLIANT worker
+            colour = (0, 0, 220)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), colour, 3)
 
-        cv2.putText(frame, label,  (x1, y1 - 22),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, colour, 2)
-        cv2.putText(frame, status, (x1, y1 - 6),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, colour, 1)
+            missing_str = ", ".join(sorted(missing_ppe)).upper().replace("_", " ")
+            label1 = f"WORKER-{w_id} | MISSING PPE"
+            label2 = f"MISSING: {missing_str}"
+
+            banner_y1 = max(0, y1 - 36) if y1 >= 36 else y1
+            banner_y2 = y1 if y1 >= 36 else y1 + 36
+            cv2.rectangle(frame, (x1, banner_y1), (x2, banner_y2), colour, -1)
+            cv2.putText(frame, label1, (x1 + 6, max(14, banner_y2 - 20)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.48, (255, 255, 255), 2, cv2.LINE_AA)
+            cv2.putText(frame, label2, (x1 + 6, max(28, banner_y2 - 4)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.40, (255, 255, 255), 1, cv2.LINE_AA)
+
+        # Deduplicate and resolve conflicts among associated PPE boxes on this worker
+        def _resolve_ppe_conflicts(item_list: list[dict]) -> list[dict]:
+            if not item_list:
+                return []
+            by_type: dict[str, list[dict]] = {}
+            for p in item_list:
+                c_name = p.get("class_name", "").lower()
+                base_type = c_name.replace("no-", "").replace("no_", "").strip()
+                by_type.setdefault(base_type, []).append(p)
+
+            resolved: list[dict] = []
+            for base_type, items in by_type.items():
+                positives = [it for it in items if not it["class_name"].lower().startswith("no")]
+                negatives = [it for it in items if it["class_name"].lower().startswith("no")]
+
+                if positives and negatives:
+                    best_pos = max(positives, key=lambda x: x.get("confidence", 0.0))
+                    best_neg = max(negatives, key=lambda x: x.get("confidence", 0.0))
+                    if best_pos["confidence"] >= best_neg["confidence"]:
+                        resolved.append(best_pos)
+                    else:
+                        resolved.append(best_neg)
+                elif positives:
+                    resolved.append(max(positives, key=lambda x: x.get("confidence", 0.0)))
+                elif negatives:
+                    resolved.append(max(negatives, key=lambda x: x.get("confidence", 0.0)))
+                else:
+                    resolved.append(items[0])
+
+            return resolved
+
+        clean_ppes = _resolve_ppe_conflicts(ppes)
+
+        # Draw associated PPE item boxes without badge collisions
+        for ppe in clean_ppes:
+            px1, py1, px2, py2 = map(int, ppe["box"])
+            c_name = ppe.get("class_name", "")
+            norm_name = c_name.replace("No-", "").replace("no-", "").replace("_", " ").upper()
+
+            # Anti-collision badge positioning: if py1 is near worker header y1, position badge inside box
+            if abs(py1 - y1) < 40 or py1 < 25:
+                badge_pos = (px1 + 2, min(py2 - 4, py1 + 18))
+            else:
+                badge_pos = (px1, py1)
+
+            if c_name.startswith("No-") or c_name.startswith("no-"):
+                # Missing constraint box -> RED
+                cv2.rectangle(frame, (px1, py1), (px2, py2), (0, 0, 220), 2)
+                PPEDetector._draw_badge(frame, f"MISSING: {norm_name}", badge_pos, (0, 0, 220), scale=0.42)
+            else:
+                # Found constraint box -> GREEN
+                cv2.rectangle(frame, (px1, py1), (px2, py2), (0, 180, 0), 2)
+                PPEDetector._draw_badge(frame, f"OK: {norm_name}", badge_pos, (0, 160, 0), scale=0.42)
 
     @staticmethod
     def _draw_ppe(frame: np.ndarray, ppe: dict) -> None:
-        x1, y1, x2, y2 = map(int, ppe["box"])
-        cv2.rectangle(frame, (x1, y1), (x2, y2), (200, 150, 0), 1)
-        cv2.putText(
-            frame,
-            f"{ppe['class_name']} {ppe['confidence']:.2f}",
-            (x1, y1 - 4),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.38, (200, 150, 0), 1,
-        )
+        pass
 
 
 # ── CLI demo ──────────────────────────────────────────────────────────────────

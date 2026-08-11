@@ -1,0 +1,24 @@
+[
+  {
+    "id": "CAM-2F46",
+    "name": "WEB CAM 1",
+    "source": "0",
+    "streamUrl": "0",
+    "type": "webcam",
+    "location": "",
+    "is_active": 1,
+    "zone_id": "ZONE-02",
+    "target_fps": 20
+  },
+  {
+    "id": "CAM-9A2B",
+    "name": "RTSP Camera Feed",
+    "source": "https://www.youtube.com/watch?v=M3EYAY2MftI",
+    "streamUrl": "https://www.youtube.com/watch?v=M3EYAY2MftI",
+    "type": "youtube",
+    "location": "",
+    "is_active": 1,
+    "zone_id": "ZONE-04",
+    "target_fps": 20
+  }
+]

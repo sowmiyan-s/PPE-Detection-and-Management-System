@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { Check, ShieldAlert, Image as ImageIcon, Trash2, History as HistoryIcon, AlertTriangle, X, Eye, XCircle, CheckCircle2 } from "lucide-react";
+import { Check, ShieldAlert, Image as ImageIcon, Trash2, History as HistoryIcon, AlertTriangle, X, Eye, XCircle, CheckCircle2, Loader2 } from "lucide-react";
 import { AppShell, PageHeader } from "@/components/app-shell";
 import { ppeLabel, formatTime, type ViolationEvent } from "@/lib/mock-data";
 import { useSessionFetch, invalidateSessionCache } from "@/hooks/use-session-fetch";
 import { useAppData } from "@/lib/data-context";
+import { useToast } from "@/lib/toast-context";
 
 export const Route = createFileRoute("/violations")({
   head: () => ({
@@ -34,14 +35,14 @@ function Evidence({
   missing,
   onOpenPreview,
 }: {
-  imagePath?: string | undefined;
-  imageBase64?: string | undefined;
-  videoPath?: string | undefined;
+  imagePath?: string;
+  imageBase64?: string;
+  videoPath?: string;
   missing: string[];
-  onOpenPreview?: () => void;
+  onOpenPreview: () => void;
 }) {
-  const imgSrc = imageBase64 || imagePath;
   const [videoError, setVideoError] = useState(false);
+  const imgSrc = imageBase64 || imagePath;
 
   if (imgSrc) {
     return (
@@ -112,6 +113,8 @@ function Evidence({
 
 function ViolationsPage() {
   const { violations: ctxViolations, loading: ctxLoading, refetchViolations } = useAppData();
+  const { showToast } = useToast();
+  const [loadingActionId, setLoadingActionId] = useState<string | null>(null);
   const { data: fetchList, loading: fetchLoading, refetch: manualRefetch, mutate } = useSessionFetch<ExtendedViolationEvent[]>("/api/violations", []);
 
   const violationList: ExtendedViolationEvent[] = ctxViolations.length > 0 ? ctxViolations : fetchList;
@@ -120,7 +123,6 @@ function ViolationsPage() {
   const [triageTab, setTriageTab] = useState<"unacknowledged" | "accepted" | "declined" | "all">("unacknowledged");
   const [previewMedia, setPreviewMedia] = useState<{ src: string; imgSrc?: string; isVideo: boolean; title: string } | null>(null);
 
-  // Group violations by status
   const unacknowledgedList = violationList.filter((v) => !v.acknowledged && !v.declined && v.status !== "accepted" && v.status !== "declined");
   const acceptedList = violationList.filter((v) => v.acknowledged || v.status === "accepted" || v.status === "reviewed");
   const declinedList = violationList.filter((v) => v.declined || v.status === "declined");
@@ -129,22 +131,22 @@ function ViolationsPage() {
     triageTab === "unacknowledged"
       ? unacknowledgedList
       : triageTab === "accepted"
-      ? acceptedList
-      : triageTab === "declined"
-      ? declinedList
-      : violationList;
+        ? acceptedList
+        : triageTab === "declined"
+          ? declinedList
+          : violationList;
 
   const handleUpdateStatus = (id: string, newStatus: "accepted" | "declined") => {
-    // Optimistic UI update
+    setLoadingActionId(id);
     mutate(
       violationList.map((v) =>
         v.id === id
           ? {
-              ...v,
-              status: newStatus,
-              acknowledged: newStatus === "accepted",
-              declined: newStatus === "declined",
-            }
+            ...v,
+            status: newStatus,
+            acknowledged: newStatus === "accepted",
+            declined: newStatus === "declined",
+          }
           : v
       )
     );
@@ -158,19 +160,30 @@ function ViolationsPage() {
         invalidateSessionCache("/api/violations");
         refetchViolations();
         manualRefetch(true);
+        showToast(newStatus === "accepted" ? "Violation confirmed successfully" : "Alert declined successfully");
       })
-      .catch((err) => console.error("Status update failed", err));
+      .catch((err) => {
+        console.error("Status update failed", err);
+        showToast("Failed to update violation status");
+      })
+      .finally(() => setLoadingActionId(null));
   };
 
   const handleDelete = (id: string) => {
+    setLoadingActionId(id);
     mutate(violationList.filter((v) => v.id !== id));
     fetch(`/api/violations/${id}`, { method: "DELETE" })
       .then(() => {
         invalidateSessionCache("/api/violations");
         refetchViolations();
         manualRefetch(true);
+        showToast("Violation event deleted successfully");
       })
-      .catch((err) => console.error("Delete failed", err));
+      .catch((err) => {
+        console.error("Delete failed", err);
+        showToast("Failed to delete violation event");
+      })
+      .finally(() => setLoadingActionId(null));
   };
 
   const handleClearAll = () => {
@@ -195,41 +208,37 @@ function ViolationsPage() {
           <div key="triage-tabs" className="flex items-center gap-1 rounded border border-border bg-panel p-1">
             <button
               onClick={() => setTriageTab("unacknowledged")}
-              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                triageTab === "unacknowledged"
-                  ? "bg-warning text-warning-foreground font-semibold"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
+              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${triageTab === "unacknowledged"
+                ? "bg-warning text-warning-foreground font-semibold"
+                : "text-muted-foreground hover:text-foreground"
+                }`}
             >
               <AlertTriangle className="size-3.5" /> Pending Review ({unacknowledgedList.length})
             </button>
             <button
               onClick={() => setTriageTab("accepted")}
-              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                triageTab === "accepted"
-                  ? "bg-success text-success-foreground font-semibold"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
+              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${triageTab === "accepted"
+                ? "bg-success text-success-foreground font-semibold"
+                : "text-muted-foreground hover:text-foreground"
+                }`}
             >
               <CheckCircle2 className="size-3.5" /> Confirmed Real ({acceptedList.length})
             </button>
             <button
               onClick={() => setTriageTab("declined")}
-              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                triageTab === "declined"
-                  ? "bg-destructive/80 text-destructive-foreground font-semibold"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
+              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${triageTab === "declined"
+                ? "bg-destructive/80 text-destructive-foreground font-semibold"
+                : "text-muted-foreground hover:text-foreground"
+                }`}
             >
               <XCircle className="size-3.5" /> False Alerts ({declinedList.length})
             </button>
             <button
               onClick={() => setTriageTab("all")}
-              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                triageTab === "all"
-                  ? "bg-primary text-primary-foreground font-semibold"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
+              className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${triageTab === "all"
+                ? "bg-primary text-primary-foreground font-semibold"
+                : "text-muted-foreground hover:text-foreground"
+                }`}
             >
               <HistoryIcon className="size-3.5" /> All Audit Log ({violationList.length})
             </button>
@@ -288,10 +297,10 @@ function ViolationsPage() {
               {triageTab === "unacknowledged"
                 ? "No Pending Violations to Triage"
                 : triageTab === "accepted"
-                ? "No Confirmed Real Violations Recorded"
-                : triageTab === "declined"
-                ? "No False Alerts Flagged"
-                : "No Violation Evidence Recorded"}
+                  ? "No Confirmed Real Violations Recorded"
+                  : triageTab === "declined"
+                    ? "No False Alerts Flagged"
+                    : "No Violation Evidence Recorded"}
             </h3>
             <p className="text-xs text-muted-foreground mt-1">
               {triageTab === "unacknowledged"
@@ -308,18 +317,16 @@ function ViolationsPage() {
             return (
               <article
                 key={v.id}
-                className={`relative overflow-hidden rounded transition-all ${
-                  isConfirmedReal
-                    ? "panel-surface border border-success/40"
-                    : isDeclinedFalse
+                className={`relative overflow-hidden rounded transition-all ${isConfirmedReal
+                  ? "panel-surface border border-success/40"
+                  : isDeclinedFalse
                     ? "panel-surface opacity-75 border border-muted"
                     : "alert-surface border border-destructive/50"
-                }`}
+                  }`}
               >
                 <div
-                  className={`absolute inset-y-0 left-0 w-1.5 ${
-                    isConfirmedReal ? "bg-success" : isDeclinedFalse ? "bg-muted-foreground/40" : "bg-destructive"
-                  }`}
+                  className={`absolute inset-y-0 left-0 w-1.5 ${isConfirmedReal ? "bg-success" : isDeclinedFalse ? "bg-muted-foreground/40" : "bg-destructive"
+                    }`}
                 />
                 <div className="flex flex-col gap-4 pl-6 pr-4 py-4 lg:flex-row lg:items-center">
                   <Evidence
@@ -344,7 +351,7 @@ function ViolationsPage() {
                       <span className="telemetry rounded-sm bg-background/60 px-1.5 py-0.5 text-[10px] text-muted-foreground font-mono">
                         {v.id}
                       </span>
-                      
+
                       {/* Status Badges */}
                       {isConfirmedReal ? (
                         <span className="rounded bg-success/20 px-2 py-0.5 text-[10px] text-success font-semibold border border-success/30 flex items-center gap-1">
@@ -401,37 +408,41 @@ function ViolationsPage() {
                       {/* Confirm Real Violation Button */}
                       <button
                         onClick={() => handleUpdateStatus(v.id, "accepted")}
-                        className={`display-title inline-flex items-center justify-center gap-1 rounded px-2.5 py-1.5 text-[10px] font-semibold transition-colors cursor-pointer ${
-                          isConfirmedReal
-                            ? "bg-success text-success-foreground shadow"
-                            : "bg-success/20 text-success hover:bg-success hover:text-success-foreground border border-success/40"
-                        }`}
+                        disabled={loadingActionId === v.id}
+                        className={`display-title inline-flex items-center justify-center gap-1 rounded px-2.5 py-1.5 text-[10px] font-semibold transition-colors cursor-pointer disabled:opacity-50 ${isConfirmedReal
+                          ? "bg-success text-success-foreground shadow"
+                          : "bg-success/20 text-success hover:bg-success hover:text-success-foreground border border-success/40"
+                          }`}
                         title="Confirm as a real safety breach for official reports"
                       >
-                        <Check className="size-3" /> {isConfirmedReal ? "Confirmed" : "Confirm Real"}
+                        {loadingActionId === v.id ? <Loader2 className="size-3 animate-spin" /> : <Check className="size-3" />}
+                        {isConfirmedReal ? "Confirmed" : "Confirm Real"}
                       </button>
 
                       {/* Decline False Alert Button */}
                       <button
                         onClick={() => handleUpdateStatus(v.id, "declined")}
-                        className={`display-title inline-flex items-center justify-center gap-1 rounded px-2.5 py-1.5 text-[10px] font-semibold transition-colors cursor-pointer ${
-                          isDeclinedFalse
-                            ? "bg-muted text-foreground border border-border"
-                            : "bg-warning/20 text-warning hover:bg-warning hover:text-warning-foreground border border-warning/40"
-                        }`}
+                        disabled={loadingActionId === v.id}
+                        className={`display-title inline-flex items-center justify-center gap-1 rounded px-2.5 py-1.5 text-[10px] font-semibold transition-colors cursor-pointer disabled:opacity-50 ${isDeclinedFalse
+                          ? "bg-muted text-foreground border border-border"
+                          : "bg-warning/20 text-warning hover:bg-warning hover:text-warning-foreground border border-warning/40"
+                          }`}
                         title="Decline as false alert — exclude from real violation statistics"
                       >
-                        <XCircle className="size-3" /> {isDeclinedFalse ? "Declined" : "Decline Alert"}
+                        {loadingActionId === v.id ? <Loader2 className="size-3 animate-spin" /> : <XCircle className="size-3" />}
+                        {isDeclinedFalse ? "Declined" : "Decline Alert"}
                       </button>
                     </div>
 
                     {/* Delete Button */}
                     <button
                       onClick={() => handleDelete(v.id)}
+                      disabled={loadingActionId === v.id}
                       title="Delete Evidence Record completely from database"
-                      className="w-full flex items-center justify-center gap-1 rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-[10px] text-destructive hover:bg-destructive hover:text-destructive-foreground transition-colors font-medium cursor-pointer"
+                      className="w-full flex items-center justify-center gap-1 rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-[10px] text-destructive hover:bg-destructive hover:text-destructive-foreground transition-colors font-medium cursor-pointer disabled:opacity-50"
                     >
-                      <Trash2 className="size-3" /> Delete Evidence
+                      {loadingActionId === v.id ? <Loader2 className="size-3 animate-spin" /> : <Trash2 className="size-3" />}
+                      Delete Evidence
                     </button>
                   </div>
                 </div>

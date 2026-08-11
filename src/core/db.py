@@ -25,6 +25,29 @@ log = logging.getLogger(__name__)
 EVIDENCE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "database", "evidence")
 os.makedirs(EVIDENCE_DIR, exist_ok=True)
 
+FALLBACK_DIR = os.path.dirname(EVIDENCE_DIR)
+CAMERAS_JSON = os.path.join(FALLBACK_DIR, "cameras_fallback.json")
+ZONES_JSON = os.path.join(FALLBACK_DIR, "zones_fallback.json")
+
+def _load_fallback_json(filepath: str, default: list) -> list:
+    if os.path.isfile(filepath):
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list) and data:
+                    return data
+        except Exception:
+            pass
+    return [dict(x) for x in default]
+
+def _save_fallback_json(filepath: str, data: list) -> None:
+    try:
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, default=str)
+    except Exception as e:
+        log.warning("Failed to save fallback JSON %s: %s", filepath, e)
+
 _client = None
 _db = None
 
@@ -35,15 +58,21 @@ def get_db():
     global _client, _db
     if _db is None:
         try:
+            uri = config.MONGODB_URI
             kwargs = {
                 "serverSelectionTimeoutMS": 3000,
                 "connectTimeoutMS": 3000,
                 "socketTimeoutMS": 3000,
-                "tlsAllowInvalidCertificates": True,
             }
-            _client = AsyncIOMotorClient(config.MONGODB_URI, **kwargs)
+            if "mongodb+srv://" in uri or "tls=true" in uri.lower() or "ssl=true" in uri.lower():
+                kwargs.update({
+                    "tls": True,
+                    "tlsAllowInvalidCertificates": True,
+                })
+
+            _client = AsyncIOMotorClient(uri, **kwargs)
             _db = _client[config.MONGODB_DB_NAME]
-            log.info(f"Connected to MongoDB at {config.MONGODB_URI}")
+            log.info(f"Connected to MongoDB at {uri}")
         except Exception as e:
             log.error(f"Failed to connect to MongoDB: {e}")
             raise
@@ -87,10 +116,7 @@ async def ensure_db():
             ]
             await db.cameras.insert_many(cameras)
 
-        log.info("Database collections & seed data verified.")
-    except Exception as e:
-        err_str = str(e).split("\n")[0][:120]
-        log.warning("MongoDB initialization info: %s (using memory fallback)", err_str)        # Seed roles if empty
+        # Seed roles if empty
         if await db.roles.count_documents({}) == 0:
             await db.roles.insert_many([
                 {"role_id": "ROLE-ADMIN", "name": "Safety Manager", "permissions": ["read", "write", "acknowledge", "delete"]},
@@ -117,7 +143,8 @@ async def ensure_db():
 
         log.info("MongoDB database initialized successfully with indexes.")
     except Exception as err:
-        log.warning("MongoDB initialization warning (will retry on demand): %s", err)
+        err_str = str(err).split("\n")[0][:120]
+        log.warning("MongoDB initialization info: %s (using local memory fallback)", err_str)
 
 SAMPLE_PROOF_SVG = (
     "data:image/svg+xml;utf8,"
@@ -132,56 +159,7 @@ SAMPLE_PROOF_SVG = (
     "</svg>"
 )
 
-_MEM_VIOLATIONS: list[dict[str, Any]] = [
-    {
-        "id": "EVT-E3476F",
-        "zone_id": "general_plant",
-        "camera_id": "CAM-01",
-        "worker_track_id": "Worker-11",
-        "violation_type": "Missing Hard_hat, Vest",
-        "detected_ppe": ["Boots"],
-        "missing_ppe": ["Hard_hat", "Vest"],
-        "confidence": 0.94,
-        "image_path": "",
-        "image_base64": SAMPLE_PROOF_SVG,
-        "video_path": "",
-        "model_version": "edgevision-ppe-v3.2-fp16",
-        "timestamp": datetime.utcnow() - timedelta(minutes=5),
-        "acknowledgement_status": "unacknowledged"
-    },
-    {
-        "id": "EVT-D72D37",
-        "zone_id": "general_plant",
-        "camera_id": "CAM-01",
-        "worker_track_id": "Worker-102",
-        "violation_type": "Missing Hard_hat, Vest",
-        "detected_ppe": ["Boots", "Glove"],
-        "missing_ppe": ["Hard_hat", "Vest"],
-        "confidence": 0.91,
-        "image_path": "",
-        "image_base64": SAMPLE_PROOF_SVG,
-        "video_path": "",
-        "model_version": "edgevision-ppe-v3.2-fp16",
-        "timestamp": datetime.utcnow() - timedelta(minutes=15),
-        "acknowledgement_status": "unacknowledged"
-    },
-    {
-        "id": "EVT-6AEF6A",
-        "zone_id": "work_at_height",
-        "camera_id": "CAM-01",
-        "worker_track_id": "Worker-101",
-        "violation_type": "Missing safety_belt, hook",
-        "detected_ppe": ["Hard_hat", "Vest", "Boots"],
-        "missing_ppe": ["safety_belt", "hook"],
-        "confidence": 0.88,
-        "image_path": "",
-        "image_base64": SAMPLE_PROOF_SVG,
-        "video_path": "",
-        "model_version": "edgevision-ppe-v3.2-fp16",
-        "timestamp": datetime.utcnow() - timedelta(minutes=30),
-        "acknowledgement_status": "unacknowledged"
-    }
-]
+_MEM_VIOLATIONS: list[dict[str, Any]] = []
 
 async def record_violation(
     worker_id: str,
@@ -198,28 +176,26 @@ async def record_violation(
 ) -> str:
     """Record a violation event with image/video evidence directly in MongoDB.
     Deduplicates active unacknowledged violations per worker ID to prevent duplicate reports."""
-    # Deduplication Guard: Check if an unacknowledged violation already exists for this worker ID or recent same-zone event
+    # Deduplication Guard: Check if a duplicate violation event occurred for this worker in the same zone within cooldown window
     now_ts = datetime.utcnow()
+    cooldown_dt = now_ts - timedelta(seconds=getattr(config, "VIOLATION_COOLDOWN_SECS", 5.0))
+
     for v in _MEM_VIOLATIONS:
-        if v.get("worker_track_id") == worker_id and v.get("acknowledgement_status") != "reviewed":
-            log.info("Skipping duplicate violation record for worker %s (existing active event: %s)", worker_id, v["id"])
-            return v["id"]
         v_ts = v.get("timestamp")
-        if isinstance(v_ts, datetime) and (now_ts - v_ts).total_seconds() < 15.0:
-            if v.get("zone_id") == zone_id and set(v.get("missing_ppe", [])) == set(missing_ppe):
-                log.info("Skipping duplicate violation record for zone %s (recent event: %s)", zone_id, v["id"])
+        if isinstance(v_ts, datetime) and v_ts >= cooldown_dt:
+            if v.get("worker_track_id") == worker_id and set(v.get("missing_ppe", [])) == set(missing_ppe):
+                log.info("Skipping duplicate violation within cooldown window for worker %s", worker_id)
                 return v["id"]
 
     try:
         database = get_db()
         existing_doc = await database.violation_events.find_one({
-            "$or": [
-                {"worker_track_id": worker_id, "acknowledgement_status": {"$ne": "reviewed"}},
-                {"zone_id": zone_id, "missing_ppe": missing_ppe, "timestamp": {"$gte": now_ts - timedelta(seconds=15)}}
-            ]
+            "worker_track_id": worker_id,
+            "missing_ppe": list(missing_ppe),
+            "timestamp": {"$gte": cooldown_dt}
         })
         if existing_doc:
-            log.info("Skipping duplicate DB record for zone %s (active event: %s)", zone_id, existing_doc["id"])
+            log.info("Skipping duplicate DB record within cooldown window for worker %s", worker_id)
             return existing_doc["id"]
     except Exception:
         pass
@@ -321,6 +297,8 @@ async def delete_all_violations() -> bool:
 
 async def delete_camera(cam_id: str) -> bool:
     """Remove a camera from DB."""
+    global _MEM_CAMERAS
+    _MEM_CAMERAS = [c for c in _MEM_CAMERAS if c.get("id") != cam_id]
     await mongo_cache.invalidate_tags(["cameras", "stats"])
     try:
         db = get_db()
@@ -328,7 +306,7 @@ async def delete_camera(cam_id: str) -> bool:
         return result.deleted_count > 0
     except Exception as e:
         log.error("Failed to delete camera %s: %s", cam_id, e)
-        return False
+        return True
 
 @cached(ttl=5.0, tags=["violations"])
 async def get_violations(limit: int = 100) -> list[dict[str, Any]]:
@@ -381,6 +359,8 @@ _DEFAULT_SEED_ZONES = [
     {"id": "ZONE-05", "name": "hazardous_material", "description": "Hazardous material handling zone", "required_ppe": ["helmet", "safety-suit", "boots", "gloves", "goggles"]},
 ]
 
+_MEM_ZONES: list[dict[str, Any]] = _load_fallback_json(ZONES_JSON, _DEFAULT_SEED_ZONES)
+
 @cached(ttl=60.0, tags=["zones"])
 async def get_zones() -> list[dict[str, Any]]:
     """Retrieve configured safety zones with their required PPE."""
@@ -392,46 +372,57 @@ async def get_zones() -> list[dict[str, Any]]:
             result = []
             for d in zones:
                 result.append({
-                    "id": d.get("id"),
-                    "name": d.get("name"),
-                    "description": d.get("description"),
+                    "id": d.get("id") or d.get("name"),
+                    "name": d.get("name") or d.get("id"),
+                    "description": d.get("description", ""),
                     "required_ppe": d.get("required_ppe", [])
                 })
+            _MEM_ZONES[:] = result
+            _save_fallback_json(ZONES_JSON, _MEM_ZONES)
             return result
     except Exception as e:
-        log.warning("MongoDB get_zones offline: using default seed zones (%s)", e)
-    return _DEFAULT_SEED_ZONES
+        log.warning("MongoDB get_zones offline: using local memory fallback (%s)", e)
+    return _MEM_ZONES
 
 async def save_zone(zone_data: dict) -> bool:
-    """Insert or update safety zone configuration in DB."""
+    """Insert or update safety zone configuration in DB and memory fallback."""
     await mongo_cache.invalidate_tags(["zones", "stats"])
+    
+    zone_id = zone_data.get("id") or zone_data.get("name") or f"ZONE-{uuid.uuid4().hex[:4].upper()}"
+    zone_name = zone_data.get("name") or zone_id
+    desc = zone_data.get("description") or zone_data.get("kind") or "Custom Zone"
+    req_ppe = zone_data.get("required_ppe", [])
+
+    entry = {
+        "id": zone_id,
+        "name": zone_name,
+        "description": desc,
+        "required_ppe": req_ppe
+    }
+
+    # Update local memory fallback
+    found = False
+    for idx, z in enumerate(_MEM_ZONES):
+        if z.get("id") == zone_id or z.get("name") == zone_name or z.get("id") == zone_name:
+            _MEM_ZONES[idx] = entry
+            found = True
+            break
+    if not found:
+        _MEM_ZONES.append(entry)
+
+    _save_fallback_json(ZONES_JSON, _MEM_ZONES)
+
     try:
         db = get_db()
-        zone_id = zone_data.get("id") or f"ZONE-{uuid.uuid4().hex[:4].upper()}"
-        
-        update_doc = {}
-        if "name" in zone_data and zone_data["name"]:
-            update_doc["name"] = zone_data["name"]
-            
-        desc = zone_data.get("description") or zone_data.get("kind")
-        if desc:
-            update_doc["description"] = desc
-            
-        if "required_ppe" in zone_data:
-            update_doc["required_ppe"] = zone_data["required_ppe"]
-            
-        if not update_doc:
-             update_doc["name"] = "Custom Zone"
-             
         await db.zones.update_one(
-            {"id": zone_id},
-            {"$set": update_doc},
+            {"$or": [{"id": zone_id}, {"name": zone_id}, {"id": zone_name}, {"name": zone_name}]},
+            {"$set": entry},
             upsert=True
         )
         return True
     except Exception as e:
-        log.error("Failed to save zone: %s", e)
-        return False
+        log.warning("MongoDB save_zone offline: saved to local memory fallback (%s)", e)
+        return True
 
 @cached(ttl=10.0, tags=["workers"])
 async def get_workers() -> list[dict[str, Any]]:
@@ -668,19 +659,19 @@ async def get_stats() -> dict[str, Any]:
         "daily_compliance": max(60, 100 - (active_violations * 3)) if active_violations > 0 else 100,
     }
 
-_MEM_CAMERAS: list[dict] = [
+_DEFAULT_SEED_CAMERAS = [
     {
         "id": "CAM-01",
-        "name": "Local Webcam",
+        "name": "EdgeVision Primary Camera",
         "source": "0",
-        "streamUrl": "0",
-        "type": "webcam",
-        "location": "Plant Area",
+        "location": "Plant Floor Area",
         "is_active": 1,
         "zone_id": "general_plant",
         "target_fps": 20
     }
 ]
+
+_MEM_CAMERAS: list[dict[str, Any]] = _load_fallback_json(CAMERAS_JSON, _DEFAULT_SEED_CAMERAS)
 
 @cached(ttl=15.0, tags=["cameras"])
 async def get_cameras() -> list[dict[str, Any]]:
@@ -689,27 +680,28 @@ async def get_cameras() -> list[dict[str, Any]]:
         db = get_db()
         cursor = db.cameras.find()
         cams = await cursor.to_list(length=None)
-        if not cams:
-            return _MEM_CAMERAS
-        rows = []
-        for c in cams:
-            src = str(c.get("source") or c.get("streamUrl") or "0")
-            cam_type = c.get("type") or ("webcam" if src.isdigit() else "stream")
-            rows.append({
-                "id": c.get("id"),
-                "name": c.get("name"),
-                "source": src,
-                "streamUrl": src,
-                "type": cam_type,
-                "location": c.get("location", "Plant Area"),
-                "is_active": c.get("is_active", 1),
-                "zone_id": c.get("zone_id") or c.get("zoneId") or "general_plant",
-                "target_fps": c.get("target_fps", 20)
-            })
-        return rows
-    except Exception:
-        log.warning("MongoDB get_cameras offline: using local memory feed")
-        return _MEM_CAMERAS
+        if cams:
+            rows = []
+            for c in cams:
+                src = str(c.get("source") or c.get("streamUrl") or "0")
+                cam_type = c.get("type") or ("webcam" if src.isdigit() else "stream")
+                rows.append({
+                    "id": c.get("id"),
+                    "name": c.get("name"),
+                    "source": src,
+                    "streamUrl": src,
+                    "type": cam_type,
+                    "location": c.get("location", "Plant Area"),
+                    "is_active": c.get("is_active", 1),
+                    "zone_id": c.get("zone_id") or c.get("zoneId") or "general_plant",
+                    "target_fps": c.get("target_fps", 20)
+                })
+            _MEM_CAMERAS[:] = rows
+            _save_fallback_json(CAMERAS_JSON, _MEM_CAMERAS)
+            return rows
+    except Exception as e:
+        log.warning("MongoDB get_cameras offline: using local memory feed (%s)", e)
+    return _MEM_CAMERAS
 
 async def save_camera(cam_data: dict) -> bool:
     """Insert or update a camera in DB."""
@@ -734,11 +726,13 @@ async def save_camera(cam_data: dict) -> bool:
     # Update local memory
     _MEM_CAMERAS[:] = [c for c in _MEM_CAMERAS if c.get("id") != cam_id]
     _MEM_CAMERAS.append(cam_entry)
+    _save_fallback_json(CAMERAS_JSON, _MEM_CAMERAS)
     await mongo_cache.invalidate_tags(["cameras", "stats"])
 
     try:
         db = get_db()
         update_doc = {
+            "id": cam_id,
             "name": cam_entry["name"],
             "source": src,
             "streamUrl": src,
@@ -760,7 +754,7 @@ async def save_camera(cam_data: dict) -> bool:
         return True
 
 async def update_camera(cam_id: str, cam_data: dict) -> bool:
-    """Update camera properties in DB."""
+    """Update camera properties in DB and local memory."""
     await mongo_cache.invalidate_tags(["cameras", "stats"])
     
     src = str(cam_data.get("source") or cam_data.get("streamUrl") or "").strip()
@@ -781,6 +775,8 @@ async def update_camera(cam_id: str, cam_data: dict) -> bool:
                 c["zone_id"] = cam_data.get("zoneId") or cam_data.get("zone_id")
             if "targetFps" in cam_data or "target_fps" in cam_data:
                 c["target_fps"] = int(cam_data.get("targetFps") or cam_data.get("target_fps"))
+
+    _save_fallback_json(CAMERAS_JSON, _MEM_CAMERAS)
 
     try:
         db = get_db()
@@ -804,11 +800,11 @@ async def update_camera(cam_id: str, cam_data: dict) -> bool:
             update_doc["location"] = cam_data["location"]
             
         update_doc["updated_at"] = datetime.utcnow()
-        result = await db.cameras.update_one({"id": cam_id}, {"$set": update_doc})
-        return result.modified_count > 0 or result.matched_count > 0
+        await db.cameras.update_one({"id": cam_id}, {"$set": update_doc}, upsert=True)
+        return True
     except Exception as e:
-        log.error("Failed to update camera %s: %s", cam_id, e)
-        return False
+        log.warning("MongoDB update_camera offline: updated in local memory cache (%s)", e)
+        return True
 
 async def delete_camera(cam_id: str) -> bool:
     """Delete a camera from DB and local cache."""
@@ -817,6 +813,7 @@ async def delete_camera(cam_id: str) -> bool:
     # Update local memory
     global _MEM_CAMERAS
     _MEM_CAMERAS[:] = [c for c in _MEM_CAMERAS if c.get("id") != cam_id]
+    _save_fallback_json(CAMERAS_JSON, _MEM_CAMERAS)
 
     try:
         db = get_db()

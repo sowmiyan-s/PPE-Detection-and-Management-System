@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useMemo } from "react";
-import { Download, FileSpreadsheet, Filter, Calendar, ShieldAlert, Check, RefreshCw, X, User } from "lucide-react";
+import { Download, FileSpreadsheet, Filter, Calendar, ShieldAlert, Check, RefreshCw, X, User, Loader2 } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -15,6 +15,7 @@ import {
 
 import { AppShell, PageHeader, StatCard } from "@/components/app-shell";
 import { useAppData } from "@/lib/data-context";
+import { useToast } from "@/lib/toast-context";
 
 export const Route = createFileRoute("/reports")({
   head: () => ({
@@ -54,6 +55,9 @@ interface FilteredViolation {
 
 function ReportsPage() {
   const { reports: ctxReports, zones: ctxZones, workers: ctxWorkers, violations: ctxViolations } = useAppData();
+  const { showToast } = useToast();
+  const [exportingCsv, setExportingCsv] = useState(false);
+  const [exportingExcel, setExportingExcel] = useState(false);
   
   // Multi-Constraint Filter States
   const [dateRange, setDateRange] = useState<string>("all");
@@ -114,7 +118,7 @@ function ReportsPage() {
   const dailyTrend = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const v of filteredEvents) {
-      const day = v.timestamp ? v.timestamp.split(" ")[0] : "Today";
+      const day = v.timestamp ? String(v.timestamp.split(" ")[0]) : "Today";
       counts[day] = (counts[day] || 0) + 1;
     }
     return Object.entries(counts)
@@ -141,11 +145,17 @@ function ReportsPage() {
   };
 
   const handleExportCSV = () => {
+    setExportingCsv(true);
     window.location.href = `/api/export/csv?${buildExportParams()}`;
+    showToast("CSV report generated successfully");
+    setTimeout(() => setExportingCsv(false), 1000);
   };
 
   const handleExportExcel = () => {
+    setExportingExcel(true);
     window.location.href = `/api/export/excel?${buildExportParams()}`;
+    showToast("Excel audit report downloaded successfully");
+    setTimeout(() => setExportingExcel(false), 1000);
   };
 
   return (
@@ -157,16 +167,20 @@ function ReportsPage() {
           <button
             key="csv"
             onClick={handleExportCSV}
-            className="display-title inline-flex items-center gap-1.5 rounded border border-border bg-panel px-3 py-1.5 text-xs text-foreground font-medium hover:bg-accent transition-colors shadow-sm"
+            disabled={exportingCsv}
+            className="display-title inline-flex items-center gap-1.5 rounded border border-border bg-panel px-3 py-1.5 text-xs text-foreground font-medium hover:bg-accent transition-colors shadow-sm disabled:opacity-50"
           >
-            <Download className="size-3.5 text-primary" /> Export CSV
+            {exportingCsv ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5 text-primary" />}
+            {exportingCsv ? "Exporting..." : "Export CSV"}
           </button>,
           <button
             key="excel"
             onClick={handleExportExcel}
-            className="display-title inline-flex items-center gap-1.5 rounded bg-primary px-3.5 py-1.5 text-xs text-primary-foreground font-semibold hover:bg-primary/90 transition-colors shadow"
+            disabled={exportingExcel}
+            className="display-title inline-flex items-center gap-1.5 rounded bg-primary px-3.5 py-1.5 text-xs text-primary-foreground font-semibold hover:bg-primary/90 transition-colors shadow disabled:opacity-50"
           >
-            <FileSpreadsheet className="size-4" /> Export Excel (.xlsx)
+            {exportingExcel ? <Loader2 className="size-4 animate-spin" /> : <FileSpreadsheet className="size-4" />}
+            {exportingExcel ? "Exporting..." : "Export Excel (.xlsx)"}
           </button>,
         ]}
       />

@@ -5,6 +5,7 @@ type AppDataContextType = {
   cameras: any[];
   zones: any[];
   violations: any[];
+  workers: any[];
   reports: any;
   loading: boolean;
   refetchAll: () => Promise<void>;
@@ -17,6 +18,7 @@ const AppDataContext = createContext<AppDataContextType>({
   cameras: [],
   zones: [],
   violations: [],
+  workers: [],
   reports: null,
   loading: true,
   refetchAll: async () => {},
@@ -48,6 +50,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [cameras, setCameras] = useState<any[]>(() => safeGetItem("ev_cameras", []));
   const [zones, setZones] = useState<any[]>(() => safeGetItem("ev_zones", []));
   const [violations, setViolations] = useState<any[]>(() => safeGetItem("ev_violations", []));
+  const [workers, setWorkers] = useState<any[]>(() => safeGetItem("ev_workers", []));
   const [reports, setReports] = useState<any>(() => safeGetItem("ev_reports", null));
   const [loading, setLoading] = useState<boolean>(() => !safeGetItem("ev_stats", null));
 
@@ -98,6 +101,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (e) {}
   }, []);
 
+  const fetchWorkers = useCallback(async () => {
+    try {
+      const res = await fetch("/api/workers");
+      if (res.ok) {
+        const data = await res.json();
+        setWorkers(data);
+        safeSetItem("ev_workers", data);
+      }
+    } catch (e) {}
+  }, []);
+
   const fetchReports = useCallback(async () => {
     try {
       const res = await fetch("/api/reports");
@@ -115,10 +129,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       fetchCameras(),
       fetchZones(),
       fetchViolations(),
+      fetchWorkers(),
       fetchReports(),
     ]);
     setLoading(false);
-  }, [fetchStats, fetchCameras, fetchZones, fetchViolations, fetchReports]);
+  }, [fetchStats, fetchCameras, fetchZones, fetchViolations, fetchWorkers, fetchReports]);
 
   useEffect(() => {
     if (!initializedRef.current) {
@@ -142,6 +157,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         cameras,
         zones,
         violations,
+        workers,
         reports,
         loading,
         refetchAll,
