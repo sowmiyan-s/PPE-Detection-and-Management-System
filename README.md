@@ -111,6 +111,22 @@ Open your browser at **`http://localhost:3000`** to access the dashboard.
 
 ---
 
+## ☁️ Cloud Deployment (Render)
+
+Deploy EdgeVision effortlessly to **Render** in 1-click:
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy)
+
+1. Push your repository to **GitHub**.
+2. Go to **Render Dashboard** > **New +** > **Blueprint**.
+3. Select your repository — Render automatically uses `render.yaml` to build and launch the app.
+4. Add your `MONGODB_URI` environment variable for cloud database persistence.
+
+For detailed step-by-step instructions, see **[RENDER_DEPLOYMENT.md](file:///d:/PROJECTS/PPE%20DETECTION/RENDER_DEPLOYMENT.md)**.
+
+---
+
+
 ## 📡 REST API Reference
 
 | Endpoint | Method | Description |

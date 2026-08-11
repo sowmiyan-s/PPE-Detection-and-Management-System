@@ -1,0 +1,55 @@
+# Render Blueprint Specification for EdgeVision
+# Learn more at https://render.com/docs/blueprint-spec
+
+services:
+  # ── OPTION 1: Unified Fullstack Service (Recommended: Fits in 1 Free Render Service) ──
+  - type: web
+    name: edgevision-fullstack
+    env: docker
+    dockerfilePath: Dockerfile
+    plan: free
+    region: oregon
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DB_NAME
+        value: edgevision
+      - key: PERFORMANCE_PROFILE
+        value: low_end
+      - key: DETECTION_CONF
+        value: "0.20"
+
+  # ── OPTION 2: Separate Backend Service (If deploying as dual services) ──
+  - type: web
+    name: edgevision-backend
+    env: docker
+    dockerfilePath: Dockerfile.backend
+    plan: free
+    region: oregon
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DB_NAME
+        value: edgevision
+      - key: PERFORMANCE_PROFILE
+        value: low_end
+
+  # ── OPTION 2: Separate Frontend Service (If deploying as dual services) ──
+  - type: web
+    name: edgevision-frontend
+    env: docker
+    dockerfilePath: frontend/Dockerfile
+    plan: free
+    region: oregon
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: VITE_BACKEND_URL
+        fromService:
+          type: web
+          name: edgevision-backend
+          property: host

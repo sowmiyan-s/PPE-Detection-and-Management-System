@@ -14,7 +14,5 @@ EXPOSE 3000
 
 # Start the nitro server (default output location for tanstack start cloudflare/node)
 # Since we didn't specify nitro config explicitly in vite.config.ts, the default node output is usually .output/server/index.mjs
-ENV HOST=0.0.0.0
-ENV PORT=3000
+CMD ["sh", "-c", "PORT=${PORT:-3000} node .output/server/index.mjs"]
 
-CMD ["node", ".output/server/index.mjs"]

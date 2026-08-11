@@ -126,7 +126,7 @@ MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "edgevision")
 
 # ── Web server ────────────────────────────────────────────────────────────────
 SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
-SERVER_PORT = int(os.getenv("SERVER_PORT", "8000"))
+SERVER_PORT = int(os.getenv("PORT", os.getenv("SERVER_PORT", "8000")))
 
 # ── Camera ────────────────────────────────────────────────────────────────────
 DEFAULT_CAMERA_SOURCE = os.getenv("CAMERA_SOURCE", "0")
