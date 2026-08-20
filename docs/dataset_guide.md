@@ -2,13 +2,13 @@
 
 > **Repository:** [https://github.com/Vidhyasree14/Cerberus-AI](https://github.com/Vidhyasree14/Cerberus-AI) | **Developer:** Vidhyashree M
 
-This technical guide outlines the 19-class taxonomy, directory layout, labeling standards, and data augmentation pipeline used to train **Cerberus AI**.
+This technical guide outlines the PPE class taxonomy, directory layout, labeling standards, and data augmentation pipeline used to train **Cerberus AI**.
 
 ---
 
-## 🏷️ 19-Class Industrial Taxonomy
+## 🏷️ PPE Detection Taxonomy
 
-The custom YOLOv8 model is trained across three functional label categories:
+The custom YOLOv8 model is trained across two functional label categories:
 
 ### ✅ Compliant PPE Classes (Positive States)
 
@@ -20,7 +20,6 @@ The custom YOLOv8 model is trained across three functional label categories:
 | `3` | `Glove` | Work gloves (latex, leather, cut-resistant) |
 | `4` | `Hard_hat` | Construction-grade hard hat or bump cap |
 | `5` | `Mask` | Dust mask, N95, or full-face respirator |
-| `14` | `Vest` | High-visibility reflective safety vest |
 
 ### 🚨 Violation State Classes (Absence Detections)
 
@@ -33,16 +32,6 @@ The custom YOLOv8 model is trained across three functional label categories:
 | `10` | `No-Helmet` | Worker detected without head protection |
 | `11` | `No-Mask` | Worker detected without respiratory protection |
 | `12` | `No-Vest` | Worker detected without high-visibility vest |
-
-### 👷 Core Subject & Equipment Classes
-
-| Class ID | Label | Category |
-| :---: | :--- | :--- |
-| `13` | `Worker` | Primary subject anchor for ByteTrack tracking |
-| `15` | `Circular_Saw` | Power tool safety hazard |
-| `16` | `Fire_Extinguisher` | Emergency safety equipment |
-| `17` | `Fire_prevention_Net` | Work-at-height safety netting |
-| `18` | `Welding_Equipment` | Hot-work hazard marker |
 
 ---
 
@@ -69,7 +58,7 @@ train: train/images
 val: valid/images
 test: test/images
 
-nc: 19
+nc: 13
 names:
   - Boots
   - Ear-Protection
@@ -84,20 +73,13 @@ names:
   - No-Helmet
   - No-Mask
   - No-Vest
-  - Worker
-  - Vest
-  - Circular_Saw
-  - Fire_Extinguisher
-  - Fire_prevention_Net
-  - Welding_Equipment
 ```
 
 **YOLO Annotation Format (`.txt`):**
 ```
 # <class_id> <x_center> <y_center> <width> <height>  (all normalized 0.0–1.0)
-13 0.512 0.481 0.214 0.580    # Worker bounding box
 4  0.511 0.135 0.148 0.092    # Hard_hat bounding box
-14 0.515 0.410 0.189 0.224    # Vest bounding box
+0  0.515 0.890 0.142 0.080    # Boots bounding box
 ```
 
 ---

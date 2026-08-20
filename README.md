@@ -131,22 +131,19 @@ pytest tests/test_temporal_validator.py
 
 ---
 
-## 🏷️ Configured 19-Class Taxonomy
+## 🏷️ Detected PPE & Violation Classes
 
-The YOLOv8 detection engine is custom-trained on 19 distinct industrial object and violation classes across three functional categories:
+The YOLOv8 detection engine identifies both compliant PPE and explicit violation states:
 
-| Class ID | Class Name | Category | Class ID | Class Name | Category |
-| :---: | :--- | :--- | :---: | :--- | :--- |
-| `0` | `Boots` | ✅ Compliant PPE | `10` | `No-Helmet` | 🚨 Violation State |
-| `1` | `Ear-Protection` | ✅ Compliant PPE | `11` | `No-Mask` | 🚨 Violation State |
-| `2` | `Glass` | ✅ Compliant PPE | `12` | `No-Vest` | 🚨 Violation State |
-| `3` | `Glove` | ✅ Compliant PPE | `13` | `Worker` | 👷 Core Subject |
-| `4` | `Hard_hat` | ✅ Compliant PPE | `14` | `Vest` | ✅ Compliant PPE |
-| `5` | `Mask` | ✅ Compliant PPE | `15` | `Circular_Saw` | ⚙️ Equipment Hazard |
-| `6` | `No-Boots` | 🚨 Violation State | `16` | `Fire_Extinguisher` | 🔴 Safety Equipment |
-| `7` | `No-Ear-Protection` | 🚨 Violation State | `17` | `Fire_prevention_Net` | 🔴 Safety Equipment |
-| `8` | `No-Glass` | 🚨 Violation State | `18` | `Welding_Equipment` | ⚙️ Hot-Work Hazard |
-| `9` | `No-Glove` | 🚨 Violation State | | | |
+| Class Name | Category | Class Name | Category |
+| :--- | :--- | :--- | :--- |
+| `Boots` | ✅ Compliant PPE | `No-Boots` | 🚨 Violation State |
+| `Ear-Protection` | ✅ Compliant PPE | `No-Ear-Protection` | 🚨 Violation State |
+| `Glass` | ✅ Compliant PPE | `No-Glass` | 🚨 Violation State |
+| `Glove` | ✅ Compliant PPE | `No-Glove` | 🚨 Violation State |
+| `Hard_hat` | ✅ Compliant PPE | `No-Helmet` | 🚨 Violation State |
+| `Mask` | ✅ Compliant PPE | `No-Mask` | 🚨 Violation State |
+| `Vest` | ✅ Compliant PPE | `No-Vest` | 🚨 Violation State |
 
 > **Overall Model mAP@50: 88.5%** — See the full [Accuracy & Evaluation Report](docs/accuracy_report.md) for class-by-class breakdown.
 

@@ -11,7 +11,7 @@ This directory contains scripts and configurations for training, validating, and
 ```
 training/
 ├── train_model.py              # Main PyTorch / Ultralytics training pipeline
-├── dataset.yaml                # 19-class YOLO dataset taxonomy and path configuration
+├── dataset.yaml                # YOLO dataset taxonomy and path configuration
 ├── kaggle_export/
 │   ├── kaggle_training.py      # Standalone GPU training script for Kaggle (T4/P100)
 │   └── kaggle_dataset.json     # Kaggle dataset mount configuration
@@ -22,9 +22,9 @@ training/
 
 ---
 
-## 🏷️ 19-Class Industrial Schema
+## 🏷️ PPE Detection Schema
 
-The custom YOLO model is trained to recognize 19 distinct industrial object and violation classes across three functional categories:
+The custom YOLO model is trained to detect compliant PPE and violation states across two functional categories:
 
 ### ✅ Compliant PPE Classes
 | Class ID | Class Name | Detection Target |
@@ -35,7 +35,6 @@ The custom YOLO model is trained to recognize 19 distinct industrial object and 
 | `3` | `Glove` | Work gloves (leather, latex, or cut-resistant) |
 | `4` | `Hard_hat` | Hard hat or construction-grade safety helmet |
 | `5` | `Mask` | N95, dust mask, or full-face respirator |
-| `14` | `Vest` | High-visibility reflective safety vest |
 
 ### 🚨 Violation State Classes
 | Class ID | Class Name | Trigger Condition |
@@ -47,15 +46,6 @@ The custom YOLO model is trained to recognize 19 distinct industrial object and 
 | `10` | `No-Helmet` | Worker without head protection |
 | `11` | `No-Mask` | Worker without respiratory protection |
 | `12` | `No-Vest` | Worker without high-visibility vest |
-
-### 👷 Core Subject & Equipment Classes
-| Class ID | Class Name | Category |
-| :---: | :--- | :--- |
-| `13` | `Worker` | Primary detection anchor for ByteTrack person tracking |
-| `15` | `Circular_Saw` | Power tool safety hazard |
-| `16` | `Fire_Extinguisher` | Emergency safety equipment |
-| `17` | `Fire_prevention_Net` | Work-at-height fall-prevention netting |
-| `18` | `Welding_Equipment` | Hot-work hazard marker |
 
 ---
 
