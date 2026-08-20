@@ -1,0 +1,194 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * EdgeVision design system — industrial control-room.
+ * Charcoal surfaces, hazard-tape amber accent, safety-orange violations,
+ * safety-green compliance. Oswald display type + IBM Plex Mono telemetry.
+ */
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 3px);
+  --radius-md: calc(var(--radius) - 1px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+
+  --font-display: "Oswald", "Arial Narrow", sans-serif;
+  --font-sans: "Barlow", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-panel: var(--panel);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  --radius: 0.35rem;
+
+  --background: oklch(0.185 0.008 70);
+  --foreground: oklch(0.955 0.005 90);
+  --card: oklch(0.235 0.009 70);
+  --card-foreground: oklch(0.955 0.005 90);
+  --panel: oklch(0.215 0.008 70);
+  --popover: oklch(0.235 0.009 70);
+  --popover-foreground: oklch(0.955 0.005 90);
+
+  --primary: oklch(0.8 0.16 80);
+  --primary-foreground: oklch(0.19 0.02 70);
+
+  --secondary: oklch(0.29 0.008 70);
+  --secondary-foreground: oklch(0.95 0.005 90);
+
+  --muted: oklch(0.275 0.008 70);
+  --muted-foreground: oklch(0.7 0.012 80);
+
+  --accent: oklch(0.315 0.012 75);
+  --accent-foreground: oklch(0.96 0.005 90);
+
+  --destructive: oklch(0.645 0.205 38);
+  --destructive-foreground: oklch(0.99 0.005 90);
+
+  --success: oklch(0.72 0.17 148);
+  --success-foreground: oklch(0.18 0.02 150);
+
+  --warning: oklch(0.8 0.16 80);
+  --warning-foreground: oklch(0.19 0.02 70);
+
+  --info: oklch(0.7 0.12 232);
+
+  --border: oklch(0.32 0.01 72);
+  --input: oklch(0.32 0.01 72);
+  --ring: oklch(0.8 0.16 80);
+
+  --chart-1: oklch(0.8 0.16 80);
+  --chart-2: oklch(0.645 0.205 38);
+  --chart-3: oklch(0.72 0.17 148);
+  --chart-4: oklch(0.7 0.12 232);
+  --chart-5: oklch(0.62 0.04 80);
+
+  --sidebar: oklch(0.205 0.008 70);
+  --sidebar-foreground: oklch(0.93 0.005 90);
+  --sidebar-primary: oklch(0.8 0.16 80);
+  --sidebar-primary-foreground: oklch(0.19 0.02 70);
+  --sidebar-accent: oklch(0.28 0.01 72);
+  --sidebar-accent-foreground: oklch(0.96 0.005 90);
+  --sidebar-border: oklch(0.29 0.01 72);
+  --sidebar-ring: oklch(0.8 0.16 80);
+
+  --gradient-hazard: repeating-linear-gradient(
+    -45deg,
+    var(--primary) 0 10px,
+    transparent 10px 20px
+  );
+  --shadow-panel: 0 1px 0 0 oklch(1 0 0 / 4%) inset, 0 14px 30px -18px oklch(0 0 0 / 70%);
+  --shadow-alert: 0 0 0 1px color-mix(in oklab, var(--destructive) 45%, transparent),
+    0 12px 34px -20px color-mix(in oklab, var(--destructive) 70%, transparent);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    background-image:
+      linear-gradient(oklch(1 0 0 / 2.5%) 1px, transparent 1px),
+      linear-gradient(90deg, oklch(1 0 0 / 2.5%) 1px, transparent 1px);
+    background-size: 48px 48px;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    letter-spacing: 0.02em;
+  }
+}
+
+/* Signature diagonal hazard-tape stripe */
+@utility hazard-stripe {
+  background-image: var(--gradient-hazard);
+  background-size: 28px 28px;
+  opacity: 0.85;
+}
+
+@utility panel-surface {
+  background-color: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-panel);
+}
+
+@utility alert-surface {
+  background-color: color-mix(in oklab, var(--destructive) 10%, var(--panel));
+  box-shadow: var(--shadow-alert);
+}
+
+@utility telemetry {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+@utility display-title {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+@utility scan-pulse {
+  animation: scan-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes scan-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}

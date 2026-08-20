@@ -1,0 +1,16 @@
+[Unit]
+Description=EdgeVision Industrial PPE Compliance & Work-at-Height System
+After=network.target mongodb.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/edgevision
+ExecStart=/usr/bin/python3 -m src.api.server
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+Environment=PORT=8000
+
+[Install]
+WantedBy=multi-user.target

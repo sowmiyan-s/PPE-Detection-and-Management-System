@@ -1,0 +1,40 @@
+# Git & Local Environment
+.git/
+.gitignore
+.env
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Dependencies & Build artifacts
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.output/
+frontend/.nitro/
+dist/
+build/
+
+# Evidence & Database files
+database/evidence/*
+!database/evidence/.gitkeep
+database/*.db
+database/*.sqlite
+
+# Test caches & Benchmarks
+.pytest_cache/
+.benchmarks/
+scratch/
+runs/
+experiments/
+
+# Logs & Temporary files
+*.log
+*.tmp
+*.bak
+.DS_Store
+Thumbs.db

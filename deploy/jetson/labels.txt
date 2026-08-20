@@ -1,0 +1,8 @@
+person
+helmet
+vest
+boots
+safety_belt
+lanyard
+hook
+anchor_point

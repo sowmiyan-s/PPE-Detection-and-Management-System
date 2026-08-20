@@ -1,0 +1,11 @@
+# Auto-detect text files and normalize line endings on checkout
+* text=auto
+
+# Ensure binary files are treated as binary without Git LFS filters
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.pt binary
+*.onnx binary
+*.bin binary

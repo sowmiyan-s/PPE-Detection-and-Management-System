@@ -1,0 +1,74 @@
+# ==============================================================================
+# EdgeVision PPE Compliance Platform - Git & Hugging Face Ignore Rules
+# ==============================================================================
+
+# ── 1. Python & Virtual Environments ──────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.env
+.venv/
+venv/
+env/
+
+# ── 2. AI Models & Weights ───────────────────────────────────────────────────
+# Ignore temporary export formats (TensorRT engines, ONNX exports, training runs)
+ppe_training/
+runs/
+experiments/
+Dataset/
+dataset/
+*.engine
+*.onnx
+
+# KEEP active PyTorch model weights tracked in Git / Hugging Face
+!models/
+!models/*.pt
+
+# ── 3. Databases & Evidence Files ──────────────────────────────────────────────
+# Ignore runtime SQLite databases, fallback JSON stores, and evidence captures
+database/*.db
+database/*.sqlite
+database/*.json
+!database/schema.sql
+!database/migrations/**
+*.db
+*.sqlite
+
+# Ignore evidence files & captures
+database/evidence/*
+database/evidence/**
+!database/evidence/.gitkeep
+
+# ── 4. Frontend & Node.js Dependencies ─────────────────────────────────────────
+node_modules/
+frontend/node_modules/
+frontend/.output/
+frontend/.wrangler/
+frontend/.nitro/
+frontend/.tanstack/
+frontend/.lovable/
+frontend/dist/
+
+# ── 5. Logs, Caches & Temporary Artifacts ─────────────────────────────────────
+.pytest_cache/
+.benchmarks/
+Ultralytics/
+backup/
+scratch/
+cookies.txt
+*.log
+*.tmp
+*.bak
+
+# ── 6. OS & System Files ──────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.replit
+.pythonlibs/
+.cache/
+.local/
