@@ -1,0 +1,149 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 700" width="1200" height="700" font-family="'Segoe UI', Arial, sans-serif">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0d1117;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0a1628;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <marker id="arrowBlue" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#00b4d8" />
+    </marker>
+    <marker id="arrowCyan" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee" />
+    </marker>
+    <marker id="arrowGreen" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#4ade80" />
+    </marker>
+    <marker id="arrowPurple" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#a78bfa" />
+    </marker>
+  </defs>
+  <rect width="1200" height="700" fill="url(#bgGrad)" rx="12" />
+  <text x="600" y="45" text-anchor="middle" font-size="26" font-weight="bold" fill="#ffffff" filter="url(#glow)" letter-spacing="2">CERBERUS AI - SYSTEM ARCHITECTURE</text>
+  <text x="600" y="68" text-anchor="middle" font-size="13" fill="#64748b">Industrial PPE Compliance and Safety Intelligence Platform | Developed by Vidyashree M</text>
+
+  <!-- Layer 1 -->
+  <rect x="20" y="90" width="180" height="560" rx="10" fill="none" stroke="#00b4d8" stroke-width="1.5" stroke-dasharray="6,4" opacity="0.6"/>
+  <text x="110" y="112" text-anchor="middle" font-size="11" fill="#00b4d8" font-weight="bold">INPUT LAYER</text>
+  <rect x="32" y="125" width="156" height="65" rx="8" fill="#0e2a3d" stroke="#00b4d8" stroke-width="1.2"/>
+  <text x="110" y="152" text-anchor="middle" font-size="11" fill="#00b4d8" font-weight="bold">USB Webcam</text>
+  <text x="110" y="170" text-anchor="middle" font-size="10" fill="#94a3b8">Local video device</text>
+  <rect x="32" y="205" width="156" height="65" rx="8" fill="#0e2a3d" stroke="#00b4d8" stroke-width="1.2"/>
+  <text x="110" y="232" text-anchor="middle" font-size="11" fill="#00b4d8" font-weight="bold">RTSP / IP Camera</text>
+  <text x="110" y="250" text-anchor="middle" font-size="10" fill="#94a3b8">Network stream</text>
+  <rect x="32" y="285" width="156" height="65" rx="8" fill="#0e2a3d" stroke="#00b4d8" stroke-width="1.2"/>
+  <text x="110" y="312" text-anchor="middle" font-size="11" fill="#00b4d8" font-weight="bold">MP4 / HTTP Feed</text>
+  <text x="110" y="330" text-anchor="middle" font-size="10" fill="#94a3b8">Files + YouTube Live</text>
+  <rect x="32" y="390" width="156" height="80" rx="8" fill="#0e3040" stroke="#22d3ee" stroke-width="1.5" filter="url(#glow)"/>
+  <text x="110" y="418" text-anchor="middle" font-size="11" fill="#22d3ee" font-weight="bold">ThreadedCamera</text>
+  <text x="110" y="436" text-anchor="middle" font-size="10" fill="#94a3b8">Ring-buffer grabber</text>
+  <text x="110" y="452" text-anchor="middle" font-size="10" fill="#64748b">Auto-recovery loop</text>
+  <line x1="110" y1="350" x2="110" y2="388" stroke="#00b4d8" stroke-width="1.5" marker-end="url(#arrowBlue)" opacity="0.7"/>
+  <line x1="188" y1="430" x2="226" y2="430" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrowCyan)" filter="url(#glow)"/>
+
+  <!-- Layer 2 -->
+  <rect x="215" y="90" width="430" height="560" rx="10" fill="none" stroke="#22d3ee" stroke-width="1.5" stroke-dasharray="6,4" opacity="0.6"/>
+  <text x="430" y="112" text-anchor="middle" font-size="11" fill="#22d3ee" font-weight="bold">5-STAGE VISION PIPELINE</text>
+  <rect x="228" y="122" width="185" height="90" rx="8" fill="#0e3040" stroke="#22d3ee" stroke-width="1.5" filter="url(#glow)"/>
+  <text x="320" y="147" text-anchor="middle" font-size="12" fill="#22d3ee" font-weight="bold">Stage 1: ByteTrack</text>
+  <text x="320" y="164" text-anchor="middle" font-size="10" fill="#94a3b8">Persistent Worker IDs</text>
+  <text x="320" y="180" text-anchor="middle" font-size="10" fill="#64748b">Kalman Filter + IoU Matching</text>
+  <text x="320" y="196" text-anchor="middle" font-size="10" fill="#64748b">Worker-101, Worker-102...</text>
+  <rect x="228" y="225" width="185" height="90" rx="8" fill="#0e3040" stroke="#22d3ee" stroke-width="1.5" filter="url(#glow)"/>
+  <text x="320" y="250" text-anchor="middle" font-size="12" fill="#22d3ee" font-weight="bold">Stage 2: YOLOv8</text>
+  <text x="320" y="267" text-anchor="middle" font-size="10" fill="#94a3b8">19-Class PPE Detection</text>
+  <text x="320" y="283" text-anchor="middle" font-size="10" fill="#64748b">FP16 TensorRT Engine</text>
+  <text x="320" y="299" text-anchor="middle" font-size="10" fill="#64748b">mAP@50: 88.5%</text>
+  <rect x="228" y="328" width="185" height="90" rx="8" fill="#0e3040" stroke="#22d3ee" stroke-width="1.5" filter="url(#glow)"/>
+  <text x="320" y="353" text-anchor="middle" font-size="12" fill="#22d3ee" font-weight="bold">Stage 3: Spatial Assoc.</text>
+  <text x="320" y="370" text-anchor="middle" font-size="10" fill="#94a3b8">Anatomical Region Mapping</text>
+  <text x="320" y="386" text-anchor="middle" font-size="10" fill="#64748b">Head / Torso / Feet zones</text>
+  <text x="320" y="402" text-anchor="middle" font-size="10" fill="#64748b">PPE containment checks</text>
+  <rect x="228" y="430" width="185" height="80" rx="8" fill="#0e3040" stroke="#22d3ee" stroke-width="1.5" filter="url(#glow)"/>
+  <text x="320" y="455" text-anchor="middle" font-size="12" fill="#22d3ee" font-weight="bold">Stage 4: Rule Engine</text>
+  <text x="320" y="472" text-anchor="middle" font-size="10" fill="#94a3b8">Per-Zone PPE Requirements</text>
+  <text x="320" y="488" text-anchor="middle" font-size="10" fill="#64748b">Configurable compliance matrix</text>
+  <rect x="228" y="522" width="185" height="80" rx="8" fill="#0e3040" stroke="#22d3ee" stroke-width="1.5" filter="url(#glow)"/>
+  <text x="320" y="548" text-anchor="middle" font-size="12" fill="#22d3ee" font-weight="bold">Stage 5: Temporal Filter</text>
+  <text x="320" y="565" text-anchor="middle" font-size="10" fill="#94a3b8">Noise Suppression</text>
+  <text x="320" y="581" text-anchor="middle" font-size="10" fill="#64748b">8/10 frames + 2s dwell floor</text>
+  <line x1="320" y1="212" x2="320" y2="223" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrowCyan)"/>
+  <line x1="320" y1="315" x2="320" y2="326" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrowCyan)"/>
+  <line x1="320" y1="418" x2="320" y2="428" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrowCyan)"/>
+  <line x1="320" y1="510" x2="320" y2="520" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrowCyan)"/>
+
+  <!-- Layer 3 -->
+  <rect x="658" y="90" width="210" height="560" rx="10" fill="none" stroke="#4ade80" stroke-width="1.5" stroke-dasharray="6,4" opacity="0.6"/>
+  <text x="763" y="112" text-anchor="middle" font-size="11" fill="#4ade80" font-weight="bold">API CORE</text>
+  <rect x="670" y="122" width="186" height="115" rx="8" fill="#0e2e1a" stroke="#4ade80" stroke-width="1.5" filter="url(#glow)"/>
+  <text x="763" y="148" text-anchor="middle" font-size="12" fill="#4ade80" font-weight="bold">FastAPI Backend</text>
+  <text x="763" y="166" text-anchor="middle" font-size="10" fill="#94a3b8">src/api/server.py</text>
+  <text x="763" y="183" text-anchor="middle" font-size="10" fill="#64748b">REST API endpoints</text>
+  <text x="763" y="200" text-anchor="middle" font-size="10" fill="#64748b">WebSocket hub (/ws)</text>
+  <text x="763" y="217" text-anchor="middle" font-size="10" fill="#64748b">localhost:8000</text>
+  <rect x="670" y="252" width="186" height="95" rx="8" fill="#0e2e1a" stroke="#4ade80" stroke-width="1.5" filter="url(#glow)"/>
+  <text x="763" y="277" text-anchor="middle" font-size="12" fill="#4ade80" font-weight="bold">SQLite WAL Database</text>
+  <text x="763" y="294" text-anchor="middle" font-size="10" fill="#94a3b8">journal_mode=WAL</text>
+  <text x="763" y="311" text-anchor="middle" font-size="10" fill="#64748b">In-memory query cache</text>
+  <text x="763" y="328" text-anchor="middle" font-size="10" fill="#64748b">PostgreSQL optional sync</text>
+  <rect x="670" y="362" width="186" height="85" rx="8" fill="#0e2e1a" stroke="#4ade80" stroke-width="1.2"/>
+  <text x="763" y="387" text-anchor="middle" font-size="12" fill="#4ade80" font-weight="bold">Evidence Writer</text>
+  <text x="763" y="404" text-anchor="middle" font-size="10" fill="#94a3b8">Async JPEG snapshots</text>
+  <text x="763" y="421" text-anchor="middle" font-size="10" fill="#64748b">MP4 violation clips</text>
+  <rect x="670" y="462" width="186" height="170" rx="8" fill="#0e2e1a" stroke="#4ade80" stroke-width="1.2" opacity="0.8"/>
+  <text x="763" y="487" text-anchor="middle" font-size="11" fill="#4ade80" font-weight="bold">REST Endpoints</text>
+  <text x="680" y="506" font-size="9.5" fill="#94a3b8">GET /api/zones</text>
+  <text x="680" y="522" font-size="9.5" fill="#94a3b8">POST /api/cameras</text>
+  <text x="680" y="538" font-size="9.5" fill="#94a3b8">GET /api/violations</text>
+  <text x="680" y="554" font-size="9.5" fill="#94a3b8">GET /api/workers</text>
+  <text x="680" y="570" font-size="9.5" fill="#94a3b8">GET /api/model/benchmark</text>
+  <text x="680" y="586" font-size="9.5" fill="#22d3ee">WS /ws (live telemetry)</text>
+  <text x="680" y="602" font-size="9.5" fill="#64748b">POST /api/violations/purge</text>
+  <text x="680" y="618" font-size="9.5" fill="#64748b">DELETE /violations/:id</text>
+  <line x1="413" y1="562" x2="658" y2="562" stroke="#4ade80" stroke-width="2" marker-end="url(#arrowGreen)" filter="url(#glow)"/>
+  <line x1="413" y1="562" x2="413" y2="180" stroke="#4ade80" stroke-width="1.5" opacity="0.5"/>
+  <line x1="413" y1="180" x2="668" y2="180" stroke="#4ade80" stroke-width="1.5" marker-end="url(#arrowGreen)" opacity="0.7"/>
+
+  <!-- Layer 4 -->
+  <rect x="882" y="90" width="298" height="560" rx="10" fill="none" stroke="#a78bfa" stroke-width="1.5" stroke-dasharray="6,4" opacity="0.6"/>
+  <text x="1031" y="112" text-anchor="middle" font-size="11" fill="#a78bfa" font-weight="bold">PRESENTATION LAYER</text>
+  <rect x="894" y="122" width="274" height="130" rx="8" fill="#1e0e3d" stroke="#a78bfa" stroke-width="1.5" filter="url(#glow)"/>
+  <text x="1031" y="148" text-anchor="middle" font-size="12" fill="#a78bfa" font-weight="bold">React 19 Dashboard</text>
+  <text x="1031" y="166" text-anchor="middle" font-size="10" fill="#94a3b8">TanStack Start / Router</text>
+  <text x="1031" y="183" text-anchor="middle" font-size="10" fill="#64748b">Tailwind CSS v4 + Recharts</text>
+  <text x="1031" y="200" text-anchor="middle" font-size="10" fill="#64748b">localhost:5173</text>
+  <text x="1031" y="217" text-anchor="middle" font-size="10" fill="#64748b">Live WebSocket consumer</text>
+  <text x="1031" y="234" text-anchor="middle" font-size="10" fill="#64748b">REST polling client</text>
+  <rect x="894" y="268" width="274" height="365" rx="8" fill="#1e0e3d" stroke="#a78bfa" stroke-width="1.2"/>
+  <text x="1031" y="293" text-anchor="middle" font-size="11" fill="#a78bfa" font-weight="bold">Application Routes</text>
+  <text x="904" y="314" font-size="10" fill="#94a3b8">/ -- Executive Dashboard</text>
+  <text x="904" y="332" font-size="10" fill="#94a3b8">/live -- Multi-Camera Grid</text>
+  <text x="904" y="350" font-size="10" fill="#94a3b8">/violations -- Incident Triage</text>
+  <text x="904" y="368" font-size="10" fill="#94a3b8">/compliance -- Worker Scorecards</text>
+  <text x="904" y="386" font-size="10" fill="#94a3b8">/zones -- PPE Rules Manager</text>
+  <text x="904" y="404" font-size="10" fill="#94a3b8">/cameras -- Stream Manager</text>
+  <text x="904" y="422" font-size="10" fill="#94a3b8">/model -- Hardware Telemetry</text>
+  <text x="904" y="440" font-size="10" fill="#94a3b8">/reports -- Compliance Audits</text>
+  <line x1="904" y1="456" x2="1158" y2="456" stroke="#2d1f4e" stroke-width="1"/>
+  <text x="1031" y="478" text-anchor="middle" font-size="11" fill="#a78bfa" font-weight="bold">Key Features</text>
+  <text x="904" y="498" font-size="10" fill="#64748b">Live bounding box overlays</text>
+  <text x="904" y="516" font-size="10" fill="#64748b">Persistent Worker-ID badges</text>
+  <text x="904" y="534" font-size="10" fill="#64748b">Visual evidence snapshot modal</text>
+  <text x="904" y="552" font-size="10" fill="#64748b">Selective violation purging</text>
+  <text x="904" y="570" font-size="10" fill="#64748b">GPU/RAM capacity intelligence</text>
+  <text x="904" y="588" font-size="10" fill="#64748b">7-day compliance trend charts</text>
+  <text x="904" y="606" font-size="10" fill="#64748b">Zone PPE rule configurator</text>
+  <line x1="856" y1="180" x2="892" y2="180" stroke="#a78bfa" stroke-width="2" marker-end="url(#arrowPurple)" filter="url(#glow)"/>
+  <text x="874" y="168" text-anchor="middle" font-size="9" fill="#a78bfa">WS</text>
+  <line x1="856" y1="305" x2="892" y2="305" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrowPurple)" opacity="0.7"/>
+  <text x="874" y="295" text-anchor="middle" font-size="9" fill="#a78bfa">REST</text>
+
+  <!-- Footer -->
+  <rect x="20" y="662" width="1160" height="28" rx="6" fill="#0d1a2d" stroke="#1e3a4a" stroke-width="1"/>
+  <text x="40" y="681" font-size="10" fill="#64748b">https://github.com/Vidhyasree14/Cerberus-AI</text>
+  <text x="600" y="681" text-anchor="middle" font-size="10" fill="#64748b">Developer: Vidyashree M  |  Python 3.10+ / FastAPI / YOLOv8 / ByteTrack / React 19 / SQLite WAL</text>
+  <text x="1160" y="681" text-anchor="end" font-size="10" fill="#64748b">OSHA 1910.132  |  ISO 45001</text>
+</svg>

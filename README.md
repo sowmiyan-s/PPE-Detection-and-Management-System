@@ -1,6 +1,6 @@
 # 🛡️ Cerberus AI — Industrial PPE Compliance & Safety Intelligence Platform
 
-[![GitHub](https://img.shields.io/badge/GitHub-sowmiyan--s%2Fppe--detection--yolo-181717?style=flat&logo=github)](https://github.com/sowmiyan-s/ppe-detection-yolo)
+[![GitHub](https://img.shields.io/badge/GitHub-Vidhyasree14%2FCerberus--AI-181717?style=flat&logo=github)](https://github.com/Vidhyasree14/Cerberus-AI)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688.svg?style=flat&logo=fastapi)](https://fastapi.tiangolo.com)
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB.svg?style=flat&logo=python)](https://www.python.org)
 [![YOLOv8](https://img.shields.io/badge/Inference-YOLOv8%20%7C%20TensorRT-00FFFF.svg?style=flat)](https://ultralytics.com)
@@ -8,9 +8,11 @@
 [![SQLite](https://img.shields.io/badge/SQLite-WAL--Mode-003B57.svg?style=flat&logo=sqlite)](https://www.sqlite.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**Cerberus AI** is an enterprise-grade Edge AI computer vision platform designed for continuous, multi-camera Personal Protective Equipment (PPE) compliance monitoring and safety telemetry. Engineered for manufacturing plant floors, hazardous industrial sites, and high-altitude construction platforms, the platform combines custom-trained YOLOv8/v11 models, ByteTrack worker tracking, temporal noise suppression, and high-frequency WebSocket streaming.
+**Cerberus AI** is an enterprise-grade Edge AI computer vision platform engineered for continuous, multi-camera Personal Protective Equipment (PPE) compliance monitoring and real-time safety telemetry. Designed for manufacturing plant floors, hazardous industrial sites, and high-altitude construction platforms, the platform fuses custom-trained YOLOv8/v11 models, ByteTrack persistent worker tracking, temporal noise suppression, and high-frequency WebSocket streaming into a seamless control room experience.
 
-Official Repository: [https://github.com/sowmiyan-s/ppe-detection-yolo](https://github.com/sowmiyan-s/ppe-detection-yolo)
+> **Official Repository:** [https://github.com/Vidhyasree14/Cerberus-AI](https://github.com/Vidhyasree14/Cerberus-AI)
+>
+> **Developer:** Vidhyashree M
 
 ---
 
@@ -35,17 +37,18 @@ Official Repository: [https://github.com/sowmiyan-s/ppe-detection-yolo](https://
 
 ## 🌟 Core Capabilities
 
-- **⚡ Multi-Stream Concurrent Vision Engine:** Seamlessly processes USB webcams, RTSP streams, IP cameras, local MP4 video files, and YouTube Live streams simultaneously.
-- **🧠 5-Stage Vision & Verification Pipeline:** 
-  1. Person Tracking (`ByteTrack` persistent worker IDs)
-  2. Multi-Class PPE Detection (`YOLOv8` 19-class detector)
-  3. Spatial Association (Head, torso, foot anatomical containment heuristics)
-  4. Per-Zone Rule Engine (Custom PPE requirements per hazard level)
-  5. Temporal Noise Suppression ($\ge 8/10$ window with a 2-second dwell floor to prevent single-frame false alerts)
-- **👥 Worker Compliance & Proof Management:** Individual worker scorecards with direct visual evidence snapshot previews, selective multi-item violation purging, dispute resolution workflows, and compliance recalculation.
-- **📊 Real-Time Hardware Telemetry & Capacity Intelligence:** Live monitoring of CPU utilization, system RAM, GPU VRAM allocation, and automatic calculation of extra webcam headroom (+10 to +15 cameras on modern GPUs/Jetson).
-- **💾 Dual-Engine High-Throughput Persistence:** SQLite WAL mode with sub-millisecond query caching and optional PostgreSQL sync.
-- **💻 Industrial Dark-Mode Control Room UI:** Built with React 19, TanStack Start, Tailwind CSS v4, and Recharts for live WebSocket telemetry feeds.
+- **⚡ Multi-Stream Concurrent Vision Engine:** Simultaneously processes USB webcams, RTSP streams, IP cameras, local MP4 video files, and YouTube Live streams.
+- **🧠 5-Stage Vision & Verification Pipeline:**
+  1. Person Tracking (`ByteTrack` — persistent `Worker-ID` assignment)
+  2. Multi-Class PPE Detection (`YOLOv8` 19-class industrial detector)
+  3. Spatial Association (Head, torso, and foot anatomical containment heuristics)
+  4. Per-Zone Rule Engine (Configurable PPE requirements per hazard zone)
+  5. Temporal Noise Suppression (≥ 8/10 sliding window + 2-second dwell floor to eliminate single-frame false alerts)
+- **👥 Worker Compliance & Proof Management:** Individual worker scorecards with visual evidence snapshot previews, selective multi-item violation purging, dispute resolution workflows, and compliance auto-recalculation.
+- **📊 Real-Time Hardware Telemetry & Capacity Intelligence:** Live monitoring of CPU utilization, system RAM, GPU VRAM allocation, and automatic calculation of extra webcam headroom (+10 to +15 cameras on modern GPUs or Jetson modules).
+- **💾 Dual-Engine High-Throughput Persistence:** SQLite WAL mode with sub-millisecond query caching and optional PostgreSQL sync for enterprise deployments.
+- **💻 Industrial Dark-Mode Control Room UI:** Built with React 19, TanStack Start, Tailwind CSS v4, and Recharts for live WebSocket telemetry feeds and compliance trend visualizations.
+- **🔒 Regulatory Alignment:** Designed to support **OSHA 1910.132** PPE usage requirements and **ISO 45001** occupational health and safety management standards.
 
 ---
 
@@ -53,38 +56,48 @@ Official Repository: [https://github.com/sowmiyan-s/ppe-detection-yolo](https://
 
 ```mermaid
 flowchart LR
-    A["Camera Inputs<br>(Webcam / RTSP / MP4)"] --> B["Threaded Grabber<br>(src/core/detector.py)"]
+    A["Camera Inputs<br>(Webcam / RTSP / MP4 / YouTube)"] --> B["Threaded Frame Grabber<br>(src/core/detector.py)"]
     B --> C["5-Stage Vision Pipeline<br>(src/core/vision_pipeline.py)"]
     C --> D["FastAPI Backend<br>(src/api/server.py)"]
     D --> E["Database Engine<br>(SQLite WAL / PostgreSQL)"]
-    D --> F["WebSocket Telemetry<br>(/ws)"]
+    D --> F["WebSocket Telemetry Hub<br>(/ws)"]
     F --> G["React Control Room UI<br>(frontend/)"]
 ```
+
+> For a deep-dive into each pipeline stage, see the [System Architecture Guide](docs/architecture.md).
 
 ---
 
 ## 🚀 Quick Start
 
 ### 1. Prerequisites
-- **Python:** `3.10` or higher
-- **Node.js:** `v18.0.0+` & `npm`
-- **Hardware (Optional):** NVIDIA GPU with CUDA 12.x / NVIDIA Jetson Orin (CPU fallback fully supported).
+
+| Requirement | Minimum Version |
+| :--- | :--- |
+| **Python** | `3.10+` |
+| **Node.js** | `v18.0.0+` |
+| **npm** | `v9+` |
+| **GPU (Optional)** | NVIDIA CUDA 12.x — CPU fallback fully supported |
+| **YOLO Weights** | Place `best.pt` into `models/` |
 
 ### 2. One-Click Launch (Windows)
-Run the automated launcher:
+
 ```cmd
 start_fullstack.bat
 ```
-- **Backend API & WebSockets:** `http://localhost:8000` (Interactive docs at `http://localhost:8000/docs`)
-- **React Control Room Dashboard:** `http://localhost:5173`
+
+| Service | URL |
+| :--- | :--- |
+| **FastAPI Backend + Interactive Docs** | `http://localhost:8000` / `http://localhost:8000/docs` |
+| **React Control Room Dashboard** | `http://localhost:5173` |
 
 ### 3. Manual Installation & Startup
 
 #### Backend Setup
 ```bash
 # Clone the repository
-git clone https://github.com/sowmiyan-s/ppe-detection-yolo.git
-cd ppe-detection-yolo
+git clone https://github.com/Vidhyasree14/Cerberus-AI.git
+cd Cerberus-AI
 
 # Install Python dependencies
 pip install -r requirements.txt
@@ -104,13 +117,13 @@ npm run dev
 
 ## 🧪 Automated Testing
 
-Execute the automated test suite covering the rule engine, worker tracker, temporal validation, and database operations:
+Execute the automated test suite covering the rule engine, worker tracker, temporal validator, and database operations:
 
 ```bash
 pytest
 ```
 
-To run individual test modules:
+Run individual test modules:
 ```bash
 pytest tests/test_rule_engine.py
 pytest tests/test_temporal_validator.py
@@ -120,18 +133,89 @@ pytest tests/test_temporal_validator.py
 
 ## 🏷️ Configured 19-Class Taxonomy
 
-The YOLOv8 detection engine is trained on 19 distinct industrial classes:
+The YOLOv8 detection engine is custom-trained on 19 distinct industrial object and violation classes across three functional categories:
+
+| Class ID | Class Name | Category | Class ID | Class Name | Category |
+| :---: | :--- | :--- | :---: | :--- | :--- |
+| `0` | `Boots` | ✅ Compliant PPE | `10` | `No-Helmet` | 🚨 Violation State |
+| `1` | `Ear-Protection` | ✅ Compliant PPE | `11` | `No-Mask` | 🚨 Violation State |
+| `2` | `Glass` | ✅ Compliant PPE | `12` | `No-Vest` | 🚨 Violation State |
+| `3` | `Glove` | ✅ Compliant PPE | `13` | `Worker` | 👷 Core Subject |
+| `4` | `Hard_hat` | ✅ Compliant PPE | `14` | `Vest` | ✅ Compliant PPE |
+| `5` | `Mask` | ✅ Compliant PPE | `15` | `Circular_Saw` | ⚙️ Equipment Hazard |
+| `6` | `No-Boots` | 🚨 Violation State | `16` | `Fire_Extinguisher` | 🔴 Safety Equipment |
+| `7` | `No-Ear-Protection` | 🚨 Violation State | `17` | `Fire_prevention_Net` | 🔴 Safety Equipment |
+| `8` | `No-Glass` | 🚨 Violation State | `18` | `Welding_Equipment` | ⚙️ Hot-Work Hazard |
+| `9` | `No-Glove` | 🚨 Violation State | | | |
+
+> **Overall Model mAP@50: 88.5%** — See the full [Accuracy & Evaluation Report](docs/accuracy_report.md) for class-by-class breakdown.
+
+---
+
+## 🐳 Docker Deployment
+
+Build and run using Docker Compose (backend + frontend + nginx proxy):
+
+```bash
+docker-compose up --build
+```
+
+For production with environment-specific nginx configuration:
+```bash
+export BACKEND_HOST=localhost
+export BACKEND_PORT=8000
+docker-compose -f docker-compose.yml up -d
+```
+
+---
+
+## 📁 Project Structure
 
 ```
-[0] Boots             [5] Mask                 [10] No-Helmet           [15] Circular_Saw
-[1] Ear-Protection    [6] No-Boots             [11] No-Mask             [16] Fire_Extinguisher
-[2] Glass             [7] No-Ear-Protection    [12] No-Vest             [17] Fire_prevention_Net
-[3] Glove             [8] No-Glass             [13] Worker              [18] Welding_Equipment
-[4] Hard_hat          [9] No-Glove             [14] Vest
+Cerberus-AI/
+├── src/
+│   ├── api/
+│   │   └── server.py              # FastAPI application, REST & WebSocket endpoints
+│   └── core/
+│       ├── detector.py            # ThreadedCamera grabber & multi-stream orchestrator
+│       ├── vision_pipeline.py     # 5-stage inference & verification pipeline
+│       ├── worker_tracker.py      # ByteTrack-based persistent worker ID management
+│       ├── rule_engine.py         # Per-zone PPE requirement evaluation engine
+│       ├── temporal_validator.py  # Sliding-window noise suppression (8/10 + 2s dwell)
+│       ├── association.py         # Anatomical PPE-to-worker spatial mapping
+│       ├── db.py                  # Async database ORM and persistence layer
+│       ├── sqlite_db.py           # SQLite WAL + in-memory cache implementation
+│       ├── device_telemetry.py    # CPU / RAM / GPU / Jetson hardware metrics
+│       ├── cache.py               # Tag-based query result caching
+│       ├── config.py              # Global platform configuration and constants
+│       ├── enhancer.py            # Frame preprocessing and contrast enhancement
+│       └── publisher.py           # WebSocket broadcast hub
+├── frontend/                      # React 19 + TanStack Start control room SPA
+├── training/                      # YOLO model training scripts and configurations
+├── docs/                          # Complete technical documentation suite
+├── models/                        # Pre-trained YOLO weights (best.pt / best.engine)
+├── database/                      # SQLite database storage
+├── scripts/                       # TensorRT export, ONNX conversion utilities
+├── tests/                         # Automated pytest test suite
+├── deploy/                        # Production systemd and deployment configurations
+├── requirements.txt               # Python dependency manifest
+├── docker-compose.yml             # Full-stack container orchestration
+├── start_fullstack.bat            # Windows one-click launcher
+└── data.yaml                      # YOLO 19-class dataset configuration
 ```
 
 ---
 
 ## 📜 License & Compliance
 
-Released under the **MIT License** — see [LICENSE](LICENSE). Engineered for enterprise industrial operations adhering to **OSHA 1910.132** and **ISO 45001** occupational health and safety standards.
+Released under the **MIT License** — see [LICENSE](LICENSE).
+
+Engineered for enterprise industrial operations adhering to **OSHA 1910.132** and **ISO 45001** occupational health and safety management standards.
+
+---
+
+## 👩‍💻 Developer
+
+**Cerberus AI** is developed and maintained by **Vidhyashree M**.
+
+- 🔗 **GitHub:** [https://github.com/Vidhyasree14/Cerberus-AI](https://github.com/Vidhyasree14/Cerberus-AI)
