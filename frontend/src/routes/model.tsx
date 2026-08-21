@@ -199,12 +199,11 @@ function ModelPage() {
     <AppShell>
       <PageHeader
         title="Model Telemetry & Hardware Capacity Intelligence"
-        subtitle="Real-time YOLOv8 pipeline benchmarks, hardware performance, extra webcam capacity estimator, and genuine class detection counts."
         actions={
           <div className="flex items-center gap-2 flex-wrap">
             <span className="telemetry rounded border border-primary/50 bg-primary/10 px-2.5 py-1 text-[11px] text-primary font-mono font-bold flex items-center gap-1">
               <Zap className="size-3" />
-              {dev?.is_jetson ? "NVIDIA JETSON" : dev?.gpu?.has_cuda ? "NVIDIA CUDA ACCELERATED" : "CPU ENGINE"}
+              {dev?.is_jetson ? "NVIDIA JETSON" : dev?.gpu?.has_cuda ? "CUDA ACCELERATED" : "CPU"}
             </span>
             <span className="telemetry rounded border border-accent/50 bg-accent/10 px-2.5 py-1 text-[11px] text-accent-foreground font-mono">
               WEIGHTS: {metrics?.weights_file || "best.pt"}
@@ -391,13 +390,7 @@ function ModelPage() {
               <h2 className="display-title text-base font-bold text-foreground">
                 Webcam & Video Stream Capacity Intelligence
               </h2>
-              <span className="telemetry rounded bg-primary/20 text-primary border border-primary/30 px-2 py-0.5 text-[11px] font-mono font-bold">
-                Multi-Camera Sizing Engine
-              </span>
             </div>
-            <p className="telemetry text-xs text-muted-foreground mt-1">
-              Calculates how many concurrent camera feeds and extra webcams this hardware ({deviceDisplayTitle}) can sustain.
-            </p>
           </div>
 
           {/* Target Profile Selector Tabs */}

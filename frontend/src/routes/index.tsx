@@ -104,10 +104,7 @@ function Overview() {
 
   return (
     <AppShell>
-      <PageHeader
-        title="Control Room Overview"
-        subtitle="Edge inference pipeline status, compliance posture and live alert feed for all monitored zones."
-      />
+      <PageHeader title="Control Room Overview" />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
@@ -142,10 +139,7 @@ function Overview() {
 
       <section className="mt-3 grid gap-3 lg:grid-cols-3">
         <div className="rounded panel-surface p-4 lg:col-span-2">
-          <h2 className="display-title text-sm">7-day violation trend</h2>
-          <p className="mb-3 text-xs text-muted-foreground">
-            Confirmed violations after temporal validation (8/10 frame rule).
-          </p>
+          <h2 className="display-title text-sm mb-3">7-day violation trend</h2>
           <div className="h-64">
             {violationTrend.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
@@ -178,8 +172,7 @@ function Overview() {
         </div>
 
         <div className="rounded panel-surface p-4">
-          <h2 className="display-title text-sm">Violations by zone</h2>
-          <p className="mb-3 text-xs text-muted-foreground">Aggregated from database.</p>
+          <h2 className="display-title text-sm mb-3">Violations by zone</h2>
           <div className="h-64">
             {violationsByZone.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">

@@ -345,7 +345,6 @@ function ViolationsPage() {
     <AppShell>
       <PageHeader
         title="Manual Violation Verification & Triage"
-        subtitle="Manually confirm real safety breaches or decline false alerts. Only operator-confirmed violations are used for executive safety analytics."
         actions={[
           <div key="triage-tabs" className="flex items-center gap-1 rounded border border-border bg-panel p-1">
             <button

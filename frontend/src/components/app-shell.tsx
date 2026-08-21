@@ -78,7 +78,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
           <div className="leading-none">
             <div className="display-title text-lg font-semibold">Cerberus AI</div>
-            <div className="telemetry text-[10px] text-muted-foreground">PPE · HEIGHT SAFETY</div>
           </div>
         </div>
 
@@ -116,13 +115,6 @@ export function AppShell({ children }: { children: ReactNode }) {
               {showWebcam ? "ON" : "OFF"}
             </button>
           </div>
-          <div className="telemetry flex items-center gap-2 text-[11px] text-muted-foreground">
-            <Gauge className={`size-3.5 ${isActive ? "text-success" : "text-muted-foreground"}`} />
-            AI INFERENCE NODE
-          </div>
-          <div className="telemetry text-[11px] text-muted-foreground">
-            YOLO Compliance Engine
-          </div>
         </div>
       </aside>
 
@@ -145,9 +137,6 @@ export function AppShell({ children }: { children: ReactNode }) {
             <div className="telemetry hidden items-center gap-2 text-xs text-muted-foreground sm:flex">
               <Activity className={`size-3.5 ${isActive ? "text-success scan-pulse" : "text-muted-foreground"}`} />
               {pipelineStatus}
-            </div>
-            <div className="telemetry rounded border border-border bg-panel px-2.5 py-1 text-xs text-primary">
-              v1.0
             </div>
           </div>
         </header>

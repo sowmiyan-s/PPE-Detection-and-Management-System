@@ -235,7 +235,6 @@ function CamerasPage() {
     <AppShell>
       <PageHeader
         title="Camera Configuration & Stream Registry"
-        subtitle="Manage connected hardware webcams and network RTSP/HTTP stream links. Store configuration in MongoDB and synchronize active streams across all client devices."
         actions={
           <button
             onClick={() => {

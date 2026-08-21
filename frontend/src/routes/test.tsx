@@ -167,9 +167,6 @@ function ModelTestPage() {
                 <FlaskConical className="size-5 text-primary" />
                 Upload Test Media & Target Safety Zone
               </h2>
-              <p className="telemetry text-xs text-muted-foreground mt-0.5">
-                Run single-frame or multi-frame video inference against YOLO models and per-zone rules.
-              </p>
             </div>
 
             {/* Zone Selector & Run Action */}

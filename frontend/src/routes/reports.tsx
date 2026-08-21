@@ -213,7 +213,6 @@ function ReportsPage() {
     <AppShell>
       <PageHeader
         title="Safety Audit Reports & Proof of Evidence"
-        subtitle="Multi-constraint incident auditing, worker compliance metrics, evidence snapshot preview, and clean exports."
         actions={[
           selectedIds.length > 0 && (
             <button

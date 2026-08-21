@@ -371,7 +371,6 @@ function CompliancePage() {
     <AppShell>
       <PageHeader
         title="Worker Compliance & Evidence Proof Management"
-        subtitle="Individual worker PPE scorecards, visual evidence gallery, and selective violation removal."
         actions={[
           workerList.length > 0 && (
             <button

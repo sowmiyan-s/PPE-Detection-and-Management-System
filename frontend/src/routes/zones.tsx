@@ -12,7 +12,7 @@ import { useAppData } from "@/lib/data-context";
 export const Route = createFileRoute("/zones")({
   head: () => ({
     meta: [
-      { title: "Zone Configuration — Cerberus AI Rule Engine" },
+      { title: "Zone Configuration — Cerberus AI" },
       {
         name: "description",
         content:
@@ -65,8 +65,8 @@ function apiZoneToLocal(apiZone: any): Zone {
   return {
     id: apiZone.id || apiZone.name,
     name: apiZone.name || apiZone.id,
-    kind: apiZone.description || apiZone.kind || "Active Safety Zone",
-    description: apiZone.description || apiZone.kind || "Active Safety Zone",
+    kind: "",
+    description: "",
     required,
     frameThreshold: Number(apiZone.frame_threshold ?? apiZone.frameThreshold ?? 8),
     dwellSeconds: Number(apiZone.dwell_seconds ?? apiZone.dwellSeconds ?? 2),
@@ -130,7 +130,6 @@ function ZonesPage() {
 
   // New Zone Form State
   const [newZoneName, setNewZoneName] = useState("");
-  const [newZoneDescription, setNewZoneDescription] = useState("");
   const [newRequired, setNewRequired] = useState<Record<PpeKey, boolean>>({ ...defaultRequired });
   const [newFrameThreshold, setNewFrameThreshold] = useState(8);
   const [newDwellSeconds, setNewDwellSeconds] = useState(2);
@@ -150,13 +149,12 @@ function ZonesPage() {
 
     setSubmittingAddZone(true);
     const name = newZoneName.trim();
-    const desc = newZoneDescription.trim() || "Custom Zone";
     const requiredPpe = CONFIGURABLE_PPE.filter((k) => newRequired[k]);
     const newZone: Zone = {
       id: name,
       name: name,
-      kind: desc,
-      description: desc,
+      kind: "",
+      description: "",
       required: { ...newRequired },
       frameThreshold: newFrameThreshold,
       dwellSeconds: newDwellSeconds,
@@ -170,7 +168,7 @@ function ZonesPage() {
         body: JSON.stringify({
           id: newZone.id,
           name: newZone.name,
-          description: desc,
+          description: "",
           required_ppe: requiredPpe,
           frame_threshold: newZone.frameThreshold,
           dwell_seconds: newZone.dwellSeconds,
@@ -185,7 +183,6 @@ function ZonesPage() {
       refetchAll();
       setShowAddModal(false);
       setNewZoneName("");
-      setNewZoneDescription("");
       setNewRequired({ ...defaultRequired });
       showToast(`Safety zone '${newZone.name}' created and applied to database`);
     } catch (err) {
@@ -202,7 +199,7 @@ function ZonesPage() {
     const payload = {
       id: targetZone.id,
       name: targetZone.name,
-      description: targetZone.kind || targetZone.description || "Active Safety Zone",
+      description: "",
       required_ppe: requiredPpe,
       frame_threshold: targetZone.frameThreshold,
       dwell_seconds: targetZone.dwellSeconds,
@@ -272,7 +269,7 @@ function ZonesPage() {
     const payload = {
       id: editingZone.id,
       name: editingZone.name.trim(),
-      description: editingZone.kind || editingZone.description || "Active Safety Zone",
+      description: "",
       required_ppe: requiredPpe,
       frame_threshold: editingZone.frameThreshold,
       dwell_seconds: editingZone.dwellSeconds,
@@ -307,7 +304,6 @@ function ZonesPage() {
     <AppShell>
       <PageHeader
         title="Zone Configuration & Custom Rules"
-        subtitle="Required PPE is evaluated per zone. Temporal validation suppresses single-frame noise before an alert is raised."
         actions={[
           <button
             key="add-zone"
@@ -338,9 +334,6 @@ function ZonesPage() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <h2 className="display-title text-lg uppercase">{zoneLabel(z.name || z.id)}</h2>
-                    <p className="telemetry text-[11px] text-muted-foreground">
-                      {z.description || z.kind || "Active Safety Zone"}
-                    </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="display-title rounded-sm bg-accent px-2 py-0.5 text-[10px] text-accent-foreground font-semibold">
@@ -474,16 +467,6 @@ function ZonesPage() {
                 />
               </div>
 
-              <div>
-                <label className="block text-xs text-muted-foreground mb-1">Zone Description (Optional)</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Scaffolding, Level 3 High Altitude Area"
-                  value={newZoneDescription}
-                  onChange={(e) => setNewZoneDescription(e.target.value)}
-                  className="w-full rounded border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none"
-                />
-              </div>
 
               <div>
                 <label className="block text-xs text-muted-foreground mb-2 font-semibold">Required Safety Items</label>
@@ -585,15 +568,6 @@ function ZonesPage() {
                 />
               </div>
 
-              <div>
-                <label className="telemetry text-xs text-muted-foreground block mb-1">Description / Category</label>
-                <input
-                  type="text"
-                  value={editingZone.kind || editingZone.description || ""}
-                  onChange={(e) => setEditingZone({ ...editingZone, kind: e.target.value, description: e.target.value })}
-                  className="telemetry w-full rounded border border-input bg-background/60 px-3 py-2 text-sm outline-none focus:border-primary"
-                />
-              </div>
 
               <div>
                 <label className="telemetry text-xs text-muted-foreground block mb-2 font-semibold">Enforced PPE Safety Rules</label>
