@@ -52,6 +52,7 @@ from src.core.vision_pipeline import VisionPipeline
 from src.core import db
 from src.core import sqlite_db
 from src.core import runtime
+from src.core import discord_webhook
 from src.core.cache import mongo_cache
 from src.core.device_telemetry import get_full_device_performance_summary
 from collections import defaultdict
@@ -767,6 +768,19 @@ async def _save_and_record(w_data, ann_img, f_buf_copy, z_id, cam_id, ts, b64):
     except Exception as ws_err:
         log.debug("WebSocket broadcast info: %s", ws_err)
 
+    try:
+        discord_webhook.send_discord_alert_async({
+            "worker_id": w_data["worker_id"],
+            "zone_id": sqlite_db.normalize_zone_id(z_id),
+            "camera_id": cam_id,
+            "missing_ppe": w_data.get("missing_ppe", []),
+            "detected_ppe": w_data.get("detected_ppe", []),
+            "confidence": w_data.get("confidence", 0.0),
+            "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        })
+    except Exception as discord_err:
+        log.debug("Discord webhook trigger info: %s", discord_err)
+
     return evt_id
 
 
@@ -1345,6 +1359,35 @@ async def sync_databases_api():
         "result": res
     })
     return JSONResponse(res)
+
+# ── Discord Webhook Alert Endpoints ──────────────────────────────────────────
+
+@app.get("/api/webhook/config")
+async def get_webhook_config_api():
+    """Retrieve current Discord webhook configuration."""
+    cfg = discord_webhook.get_webhook_config()
+    return JSONResponse(cfg)
+
+@app.post("/api/webhook/config")
+async def update_webhook_config_api(body: dict):
+    """Update and persist Discord webhook configuration (enabled toggle, url, min_confidence)."""
+    updated = discord_webhook.save_webhook_config(body)
+    await manager.broadcast_json({
+        "type": "webhook_config_updated",
+        "config": updated
+    })
+    return JSONResponse({"success": True, "config": updated})
+
+@app.post("/api/webhook/test")
+async def send_test_webhook_api(body: dict | None = None):
+    """Send an immediate test alert to the configured Discord webhook URL."""
+    custom_url = body.get("url") if body else None
+    loop = asyncio.get_running_loop()
+    ok, msg = await loop.run_in_executor(
+        runtime.get_io_executor(),
+        lambda: discord_webhook.send_test_discord_notification(custom_url=custom_url)
+    )
+    return JSONResponse({"success": ok, "message": msg}, status_code=200 if ok else 400)
 
 
 @app.get("/api/cameras")

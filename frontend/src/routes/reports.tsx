@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from "react";
 import { Download, FileSpreadsheet, Filter, Calendar, ShieldAlert, Check, RefreshCw, X, User, Loader2, Trash2, Eye, ExternalLink } from "lucide-react";
 import { AppShell, PageHeader, StatCard } from "@/components/app-shell";
 import { ConfirmModal } from "@/components/confirm-modal";
+import { DiscordWebhookSettings } from "@/components/discord-webhook-settings";
 import { formatTime, zoneLabel } from "@/lib/mock-data";
 import { useAppData } from "@/lib/data-context";
 import { useToast } from "@/lib/toast-context";
@@ -338,6 +339,11 @@ function ReportsPage() {
         <StatCard label="Unique Workers" value={uniqueWorkersCount} hint="Workers tracked in range" icon={User} tone="warning" />
         <StatCard label="Reviewed Events" value={reviewedCount} hint={`${totalViolations > 0 ? ((reviewedCount / totalViolations) * 100).toFixed(0) : 100}% reviewed`} icon={Check} tone="success" />
         <StatCard label="Active Zones" value={violationsByZone.length} hint="Zones with incidents" icon={Calendar} tone="default" />
+      </div>
+
+      {/* Discord Webhook Configuration */}
+      <div className="mb-4">
+        <DiscordWebhookSettings />
       </div>
 
       {/* Audit Trail Table with Proof of Evidence & Purge */}

@@ -158,6 +158,16 @@ def init_sqlite_db() -> None:
                 )
             """)
 
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS webhook_config (
+                    id TEXT PRIMARY KEY,
+                    enabled INTEGER DEFAULT 0,
+                    url TEXT DEFAULT '',
+                    min_confidence REAL DEFAULT 0.50,
+                    updated_at TEXT
+                )
+            """)
+
             conn.commit()
 
             # Seed zones if empty
@@ -500,6 +510,48 @@ def reject_violation_sql(violation_id: str) -> bool:
             return True
         except Exception as e:
             log.error("Failed to reject violation in SQL: %s", e)
+            return False
+
+def get_webhook_config_sql() -> dict[str, Any]:
+    """Retrieve webhook configuration from SQLite database."""
+    with _sql_lock:
+        try:
+            conn = get_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT enabled, url, min_confidence, updated_at FROM webhook_config WHERE id = 'discord_webhook'")
+            row = cur.fetchone()
+            conn.close()
+            if row:
+                return {
+                    "enabled": bool(row[0]),
+                    "url": row[1] or "",
+                    "min_confidence": float(row[2] if row[2] is not None else 0.50),
+                    "updated_at": row[3] or "",
+                }
+        except Exception as e:
+            log.error("Failed to fetch webhook config from SQL: %s", e)
+    return {"enabled": False, "url": "", "min_confidence": 0.50, "updated_at": ""}
+
+def save_webhook_config_sql(config_data: dict[str, Any]) -> bool:
+    """Save or update webhook configuration in SQLite database."""
+    with _sql_lock:
+        try:
+            conn = get_connection()
+            cur = conn.cursor()
+            enabled_val = 1 if config_data.get("enabled") else 0
+            url_val = str(config_data.get("url") or "").trim() if hasattr(str(config_data.get("url") or ""), "trim") else str(config_data.get("url") or "").strip()
+            min_conf = float(config_data.get("min_confidence", 0.50))
+            now_iso = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+            cur.execute("""
+                INSERT OR REPLACE INTO webhook_config (id, enabled, url, min_confidence, updated_at)
+                VALUES ('discord_webhook', ?, ?, ?, ?)
+            """, (enabled_val, url_val, min_conf, now_iso))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            log.error("Failed to save webhook config to SQL: %s", e)
             return False
 
 # Initialize database on module import
