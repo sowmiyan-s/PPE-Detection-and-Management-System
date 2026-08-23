@@ -49,11 +49,24 @@ def run_deepstream_pipeline(args):
     Gst.init(None)
     log.info("Initializing EdgeVision GStreamer DeepStream pipeline using config: %s", args.config)
     
-    # Build GStreamer launch string for Jetson hardware acceleration
+    # Construct dynamic GStreamer pipeline based on source type
+    src_input = str(args.input).strip()
+    if src_input.startswith("csi://"):
+        sensor_id = src_input.replace("csi://", "").strip() or "0"
+        src_bin = f"nvarguscamerasrc sensor-id={sensor_id} ! 'video/x-raw(memory:NVMM), width=1920, height=1080, format=NV12, framerate=30/1' ! nvvideoconvert ! 'video/x-raw(memory:NVMM), format=NV12'"
+    elif src_input.isdigit() or src_input.startswith("/dev/video"):
+        dev = src_input if src_input.startswith("/dev/video") else f"/dev/video{src_input}"
+        src_bin = f"v4l2src device={dev} ! 'video/x-raw, width=1280, height=720, framerate=30/1' ! videoconvert ! nvvideoconvert ! 'video/x-raw(memory:NVMM), format=NV12'"
+    elif src_input.startswith("rtsp://") or src_input.startswith("rtsps://"):
+        src_bin = f"rtspsrc location={src_input} latency=100 ! rtph264depay ! h264parse ! nvv4l2decoder ! 'video/x-raw(memory:NVMM), format=NV12'"
+    elif os.path.isfile(src_input):
+        src_bin = f"filesrc location={src_input} ! qtdemux ! h264parse ! nvv4l2decoder ! 'video/x-raw(memory:NVMM), format=NV12'"
+    else:
+        src_bin = "nvarguscamerasrc ! 'video/x-raw(memory:NVMM), width=1920, height=1080, format=NV12, framerate=30/1' ! nvvideoconvert ! 'video/x-raw(memory:NVMM), format=NV12'"
+
     pipeline_str = (
-        f"nvarguscamerasrc ! 'video/x-raw(memory:NVMM), width=1920, height=1080, format=NV12, framerate=30/1' ! "
-        f"nvvideoconvert ! 'video/x-raw(memory:NVMM), format=NV12' ! "
-        f"m.sink_0 nvstreammux name=m width=1920 height=1080 batch-size=1 ! "
+        f"{src_bin} ! "
+        f"m.sink_0 nvstreammux name=m width=1280 height=720 batch-size=1 ! "
         f"nvinfer config-file-path=deploy/jetson/pgie_config_ppe.txt ! "
         f"nvdsosd ! nveglglessink sync=0"
     )

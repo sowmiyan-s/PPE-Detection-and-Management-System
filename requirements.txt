@@ -28,5 +28,6 @@ cap-from-youtube>=0.1.0  # youtube stream cap fallback
 lap>=0.5.12              # tracking optimization
 pandas>=2.0.0            # data formatting and export
 openpyxl>=3.1.0          # excel format support
+sympy>=1.12              # PyTorch 2.x dynamic shape & NMS dependency
 
 

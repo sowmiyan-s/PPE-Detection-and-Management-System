@@ -6,6 +6,22 @@ Comprehensive deployment manual for running **Cerberus AI** on NVIDIA Jetson emb
 
 ---
 
+## ⚡ Fast Automated 3-Step Setup
+
+```bash
+# 1. Automated Provisioning & Dependencies
+chmod +x deploy/jetson/*.sh
+./deploy/jetson/install.sh
+
+# 2. Compile TensorRT FP16 Engine on Orin GPU
+./deploy/jetson/export_engine.sh
+
+# 3. Start Live Streaming Server
+./deploy/jetson/start.sh
+```
+
+---
+
 ## 📋 Recommended Hardware Specifications
 
 | Component | Minimum Specification | Recommended Production Setup |

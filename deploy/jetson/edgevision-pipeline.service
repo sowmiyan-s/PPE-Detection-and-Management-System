@@ -1,16 +1,24 @@
 [Unit]
-Description=EdgeVision Industrial PPE Compliance & Work-at-Height System
-After=network.target mongodb.service
+Description=EdgeVision NVIDIA Jetson Orin 24/7 Industrial Safety Service
+Documentation=https://github.com/Vidhyasree14/Cerberus-AI
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
-WorkingDirectory=/opt/edgevision
-ExecStart=/usr/bin/python3 -m src.api.server
+User=jetson
+Group=jetson
+WorkingDirectory=/opt/cerberus-ai
+ExecStart=/opt/cerberus-ai/venv/bin/python3 -m src.api.server
 Restart=always
 RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=edgevision
 Environment=PYTHONUNBUFFERED=1
+Environment=CUDA_VISIBLE_DEVICES=0
 Environment=PORT=8000
+Environment=PERFORMANCE_PROFILE=jetson
 
 [Install]
 WantedBy=multi-user.target

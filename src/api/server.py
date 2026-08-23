@@ -91,8 +91,14 @@ def open_camera_source(source: str) -> cv2.VideoCapture | None:
 
     if src_str.isdigit():
         idx = int(src_str)
-        # Try multiple OpenCV video backends on Windows (DSHOW -> MSMF -> Default)
-        for backend in [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY]:
+        # Try multiple OpenCV video backends depending on OS (Linux: V4L2/GSTREAMER, Windows: DSHOW/MSMF)
+        backends = []
+        if os.name != "nt":
+            backends = [getattr(cv2, "CAP_V4L2", cv2.CAP_ANY), getattr(cv2, "CAP_GSTREAMER", cv2.CAP_ANY), cv2.CAP_ANY]
+        else:
+            backends = [getattr(cv2, "CAP_DSHOW", cv2.CAP_ANY), getattr(cv2, "CAP_MSMF", cv2.CAP_ANY), cv2.CAP_ANY]
+        
+        for backend in backends:
             try:
                 c = cv2.VideoCapture(idx, backend)
                 if c and c.isOpened():
@@ -105,6 +111,29 @@ def open_camera_source(source: str) -> cv2.VideoCapture | None:
                         c.release()
             except Exception:
                 pass
+    elif src_str.startswith("csi://") or "nvarguscamerasrc" in src_str:
+        # Jetson MIPI CSI Camera Pipeline using hardware-accelerated nvarguscamerasrc
+        try:
+            if src_str.startswith("csi://"):
+                sensor_id = src_str.replace("csi://", "").strip() or "0"
+                gst_pipeline = (
+                    f"nvarguscamerasrc sensor-id={sensor_id} ! "
+                    f"video/x-raw(memory:NVMM), width=1280, height=720, framerate=30/1, format=NV12 ! "
+                    f"nvvidconv ! video/x-raw, format=BGRx ! videoconvert ! video/x-raw, format=BGR ! appsink drop=1"
+                )
+            else:
+                gst_pipeline = src_str
+            
+            c = cv2.VideoCapture(gst_pipeline, cv2.CAP_GSTREAMER)
+            if c and c.isOpened():
+                ok, test_frame = c.read()
+                if ok and test_frame is not None:
+                    log.info("Successfully opened Jetson CSI camera pipeline: %s", gst_pipeline)
+                    cap = c
+                else:
+                    c.release()
+        except Exception as csi_err:
+            log.warning("CSI GStreamer capture initialization error: %s", csi_err)
     elif os.path.isfile(src_str):
         try:
             c = cv2.VideoCapture(src_str)

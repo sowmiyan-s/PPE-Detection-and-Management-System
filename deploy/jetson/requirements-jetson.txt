@@ -1,0 +1,31 @@
+# ==============================================================================
+# EdgeVision / Cerberus AI - NVIDIA Jetson Orin Python Requirements
+# Target: JetPack 5.x / 6.x (Linux Ubuntu 20.04 / 22.04 LTS aarch64 / ARM64)
+# ==============================================================================
+
+# Core Computer Vision & YOLO Inference
+ultralytics>=8.2.0
+opencv-python-headless>=4.8.0
+numpy>=1.24.0
+pyyaml>=6.0
+
+# Web Framework & Async Live-Streaming API
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+websockets>=12.0
+pydantic>=2.0.0
+
+# Edge Telemetry & Messaging
+psutil>=5.9.0
+paho-mqtt>=1.6.1
+python-dotenv>=1.0.0
+
+# Tracking & Analytics
+lap>=0.5.12
+pandas>=2.0.0
+openpyxl>=3.1.0
+sympy>=1.12
+
+# Testing & Verification
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
