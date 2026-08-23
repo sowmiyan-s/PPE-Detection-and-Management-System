@@ -1,15 +1,18 @@
 [Unit]
 Description=EdgeVision NVIDIA Jetson Orin 24/7 Industrial Safety Service
-Documentation=https://github.com/Vidhyasree14/Cerberus-AI
+Documentation=https://github.com/sowmiyan-s/ppe-detection-yolo
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=jetson
-Group=jetson
-WorkingDirectory=/opt/cerberus-ai
-ExecStart=/opt/cerberus-ai/venv/bin/python3 -m src.api.server
+# Uses the system user who cloned the repository.
+# Override with: sudo systemctl edit edgevision-pipeline.service
+# [Service]
+# User=your_username
+# Group=your_username
+WorkingDirectory=/opt/edgevision
+ExecStart=/opt/edgevision/venv/bin/python3 -m src.api.server
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -19,6 +22,8 @@ Environment=PYTHONUNBUFFERED=1
 Environment=CUDA_VISIBLE_DEVICES=0
 Environment=PORT=8000
 Environment=PERFORMANCE_PROFILE=jetson
+Environment=DB_ENGINE=sqlite
+Environment=SERVER_HOST=0.0.0.0
 
 [Install]
 WantedBy=multi-user.target

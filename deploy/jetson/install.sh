@@ -113,6 +113,14 @@ if [ ! -f "database/evidence/sample_demo.mp4" ]; then
     python3 scripts/generate_sample_video.py || true
 fi
 
+# Auto-configure Jetson-optimized environment variables
+if [ ! -f ".env" ] && [ -f ".env.jetson.example" ]; then
+    cp .env.jetson.example .env
+    echo -e "${GREEN}✓ Copied .env.jetson.example → .env (Jetson-optimized defaults active)${NC}"
+elif [ -f ".env" ]; then
+    echo -e "${YELLOW}ℹ  Existing .env file found — not overwriting. Review .env.jetson.example for recommended Jetson settings.${NC}"
+fi
+
 echo -e "\n${GREEN}============================================================${NC}"
 echo -e "${GREEN}   ✅ Jetson Orin Deployment Setup Completed Successfully!  ${NC}"
 echo -e "${GREEN}============================================================${NC}"
