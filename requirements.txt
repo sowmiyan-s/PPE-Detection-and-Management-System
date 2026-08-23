@@ -23,6 +23,7 @@ pytest-mock>=3.14.0
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
 python-dotenv>=1.0.0     # load .env files
+psutil>=5.9.0            # system/hardware telemetry (CPU, RAM, GPU monitoring)
 yt-dlp>=2023.12.30       # youtube stream extraction
 cap-from-youtube>=0.1.0  # youtube stream cap fallback
 lap>=0.5.12              # tracking optimization

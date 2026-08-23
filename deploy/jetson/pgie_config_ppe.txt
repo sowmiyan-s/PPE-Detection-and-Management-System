@@ -1,16 +1,16 @@
-# EdgeVision Primary GIE (Primary Detector) Config for DeepStream 9.1 / 6.x
-# TensorRT Engine configuration for YOLOv8 PPE Compliance Model
+# EdgeVision Primary GIE (Primary Detector) Config for DeepStream 6.x / 7.x
+# TensorRT Engine configuration for YOLOv8/v11 PPE Compliance Model (19 classes)
 
 [property]
 gpu-id=0
 net-scale-factor=0.00392156862745098039 # 1/255.0
 model-color-format=0 # 0=RGB, 1=BGR, 2=GRAY
-onnx-file=../../models/best.onnx
-model-engine-file=../../models/best.engine
-labelfile-path=labels.txt
+onnx-file=models/best.onnx
+model-engine-file=models/best.engine
+labelfile-path=deploy/jetson/labels.txt
 batch-size=1
-network-mode=1 # 0=FP32, 1=INT8, 2=FP16
-num-detected-classes=8
+network-mode=2 # 0=FP32, 1=INT8, 2=FP16
+num-detected-classes=19
 interval=0
 gie-unique-id=1
 network-type=0 # 0=Detector, 1=Classifier, 2=Segmentation

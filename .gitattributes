@@ -1,6 +1,13 @@
 # Auto-detect text files and normalize line endings on checkout
 * text=auto
 
+# Force Unix LF line endings for shell scripts and Linux service files
+# Critical: CRLF will cause "bad interpreter" errors on Jetson Linux
+*.sh text eol=lf
+*.service text eol=lf
+Dockerfile text eol=lf
+Dockerfile.* text eol=lf
+
 # Ensure binary files are treated as binary without Git LFS filters
 *.png binary
 *.jpg binary
@@ -8,4 +15,5 @@
 *.ico binary
 *.pt binary
 *.onnx binary
+*.engine binary
 *.bin binary
