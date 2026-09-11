@@ -1,6 +1,6 @@
 # 🗺️ TanStack File-Based Routes Directory
 
-> **Repository:** [https://github.com/Vidhyasree14/Cerberus-AI](https://github.com/Vidhyasree14/Cerberus-AI) | **Developer:** Vidhyashree M
+> **Repository:** [https://github.com/sowmiyan-s/ppe-detection-yolo](https://github.com/sowmiyan-s/ppe-detection-yolo) | **Developer:** Sowmiyan S
 
 This directory defines the page routes for the **Cerberus AI Control Room** using TanStack Router file-based route resolution.
 
@@ -46,4 +46,4 @@ This directory defines the page routes for the **Cerberus AI Control Room** usin
 
 ---
 
-*Part of the [Cerberus AI](https://github.com/Vidhyasree14/Cerberus-AI) platform — developed by Vidhyashree M.*
+*Part of the [Cerberus AI](https://github.com/sowmiyan-s/ppe-detection-yolo) platform — developed by Sowmiyan S.*

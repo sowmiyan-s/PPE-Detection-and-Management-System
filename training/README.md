@@ -1,6 +1,6 @@
 # 🎯 Cerberus AI — Model Training & Dataset Engineering
 
-> **Repository:** [https://github.com/Vidhyasree14/Cerberus-AI](https://github.com/Vidhyasree14/Cerberus-AI) | **Developer:** Vidhyashree M
+> **Repository:** [https://github.com/sowmiyan-s/ppe-detection-yolo](https://github.com/sowmiyan-s/ppe-detection-yolo) | **Developer:** Sowmiyan S
 
 This directory contains scripts and configurations for training, validating, and fine-tuning custom YOLOv8 models for **Cerberus AI** — supporting local GPU workstations, cloud GPU platforms (Kaggle, Google Colab), and NVIDIA Jetson devices.
 
@@ -178,4 +178,4 @@ python training/train_model.py \
 
 ---
 
-*Part of the [Cerberus AI](https://github.com/Vidhyasree14/Cerberus-AI) platform — developed by Vidhyashree M.*
+*Part of the [Cerberus AI](https://github.com/sowmiyan-s/ppe-detection-yolo) platform — developed by Sowmiyan S.*

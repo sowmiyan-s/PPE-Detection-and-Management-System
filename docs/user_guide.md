@@ -1,6 +1,6 @@
 # 📖 Cerberus AI — Operator Standard Operating Procedure (SOP)
 
-> **Repository:** [https://github.com/Vidhyasree14/Cerberus-AI](https://github.com/Vidhyasree14/Cerberus-AI) | **Developer:** Vidhyashree M
+> **Repository:** [https://github.com/sowmiyan-s/ppe-detection-yolo](https://github.com/sowmiyan-s/ppe-detection-yolo) | **Developer:** Sowmiyan S
 
 Comprehensive operator manual and safety officer reference for daily control room triage, worker compliance verification, zone rule configuration, and audit reporting.
 
@@ -193,4 +193,4 @@ Monitor system health and estimate available camera capacity:
 
 ---
 
-*Part of the [Cerberus AI](https://github.com/Vidhyasree14/Cerberus-AI) platform — developed by Vidhyashree M.*
+*Part of the [Cerberus AI](https://github.com/sowmiyan-s/ppe-detection-yolo) platform — developed by Sowmiyan S.*

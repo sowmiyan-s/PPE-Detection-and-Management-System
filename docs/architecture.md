@@ -1,6 +1,6 @@
 # 🏗️ Cerberus AI — System Architecture & Pipeline Design
 
-> **Repository:** [https://github.com/Vidhyasree14/Cerberus-AI](https://github.com/Vidhyasree14/Cerberus-AI) | **Developer:** Vidhyashree M
+> **Repository:** [https://github.com/sowmiyan-s/ppe-detection-yolo](https://github.com/sowmiyan-s/ppe-detection-yolo) | **Developer:** Sowmiyan S
 
 Cerberus AI is an industrial edge computer vision platform architected for resilient, multi-camera PPE compliance monitoring. The platform processes continuous video streams through a modular 5-stage inference and temporal verification pipeline, serving low-latency telemetry to a React control room dashboard via FastAPI WebSockets.
 
@@ -185,4 +185,4 @@ sequenceDiagram
 
 ---
 
-*Part of the [Cerberus AI](https://github.com/Vidhyasree14/Cerberus-AI) platform — developed by Vidhyashree M.*
+*Part of the [Cerberus AI](https://github.com/sowmiyan-s/ppe-detection-yolo) platform — developed by Sowmiyan S.*

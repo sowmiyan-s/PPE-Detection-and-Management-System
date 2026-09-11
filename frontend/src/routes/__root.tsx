@@ -83,7 +83,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         content:
           "Cerberus AI platform detecting PPE compliance, restricted-zone entry and work-at-height violations in real time.",
       },
-      { name: "author", content: "Cerberus AI" },
+      { name: "author", content: "Sowmiyan S" },
       { property: "og:title", content: "Cerberus AI — PPE Compliance & Work-at-Height Safety" },
       {
         property: "og:description",

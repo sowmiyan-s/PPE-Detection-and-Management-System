@@ -1,6 +1,6 @@
 # 🚀 NVIDIA Jetson Edge Deployment Guide
 
-> **Repository:** [https://github.com/Vidhyasree14/Cerberus-AI](https://github.com/Vidhyasree14/Cerberus-AI) | **Developer:** Vidhyashree M
+> **Repository:** [https://github.com/sowmiyan-s/ppe-detection-yolo](https://github.com/sowmiyan-s/ppe-detection-yolo) | **Developer:** Sowmiyan S
 
 Comprehensive deployment manual for running **Cerberus AI** on NVIDIA Jetson embedded hardware as a 24/7 industrial edge AI safety monitoring service.
 
@@ -66,7 +66,7 @@ pip3 install --upgrade pip setuptools wheel
 ### Step 2: Clone Repository & Install Python Stack
 
 ```bash
-git clone https://github.com/Vidhyasree14/Cerberus-AI.git /opt/cerberus-ai
+git clone https://github.com/sowmiyan-s/ppe-detection-yolo.git /opt/cerberus-ai
 cd /opt/cerberus-ai
 
 pip3 install -r requirements.txt
@@ -123,7 +123,7 @@ Create the service file at `/etc/systemd/system/cerberus.service`:
 ```ini
 [Unit]
 Description=Cerberus AI Industrial Safety Telemetry Service
-Documentation=https://github.com/Vidhyasree14/Cerberus-AI
+Documentation=https://github.com/sowmiyan-s/ppe-detection-yolo
 After=network-online.target
 Wants=network-online.target
 
@@ -240,4 +240,4 @@ asyncio.run(test())
 
 ---
 
-*Part of the [Cerberus AI](https://github.com/Vidhyasree14/Cerberus-AI) platform — developed by Vidhyashree M.*
+*Part of the [Cerberus AI](https://github.com/sowmiyan-s/ppe-detection-yolo) platform — developed by Sowmiyan S.*

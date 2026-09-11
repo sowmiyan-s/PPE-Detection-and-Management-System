@@ -1,6 +1,6 @@
 # 🛡️ Cerberus AI — Industrial PPE Compliance & Safety Intelligence Platform
 
-[![GitHub](https://img.shields.io/badge/GitHub-Vidhyasree14%2FCerberus--AI-181717?style=flat&logo=github)](https://github.com/Vidhyasree14/Cerberus-AI)
+[![GitHub](https://img.shields.io/badge/GitHub-sowmiyan--s%2Fppe--detection--yolo-181717?style=flat&logo=github)](https://github.com/sowmiyan-s/ppe-detection-yolo)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688.svg?style=flat&logo=fastapi)](https://fastapi.tiangolo.com)
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB.svg?style=flat&logo=python)](https://www.python.org)
 [![YOLOv8](https://img.shields.io/badge/Inference-YOLOv8%20%7C%20TensorRT-00FFFF.svg?style=flat)](https://ultralytics.com)
@@ -10,9 +10,9 @@
 
 **Cerberus AI** is an enterprise-grade Edge AI computer vision platform engineered for continuous, multi-camera Personal Protective Equipment (PPE) compliance monitoring and real-time safety telemetry. Designed for manufacturing plant floors, hazardous industrial sites, and high-altitude construction platforms, the platform fuses custom-trained YOLOv8/v11 models, ByteTrack persistent worker tracking, temporal noise suppression, and high-frequency WebSocket streaming into a seamless control room experience.
 
-> **Official Repository:** [https://github.com/Vidhyasree14/Cerberus-AI](https://github.com/Vidhyasree14/Cerberus-AI)
+> **Official Repository:** [https://github.com/sowmiyan-s/ppe-detection-yolo](https://github.com/sowmiyan-s/ppe-detection-yolo)
 >
-> **Developer:** Vidhyashree M
+> **Developer:** Sowmiyan S
 
 ---
 
@@ -96,8 +96,8 @@ start_fullstack.bat
 #### Backend Setup
 ```bash
 # Clone the repository
-git clone https://github.com/Vidhyasree14/Cerberus-AI.git
-cd Cerberus-AI
+git clone https://github.com/sowmiyan-s/ppe-detection-yolo.git
+cd ppe-detection-yolo
 
 # Install Python dependencies
 pip install -r requirements.txt
@@ -146,6 +146,45 @@ The YOLOv8 detection engine identifies both compliant PPE and explicit violation
 | `Vest` | ✅ Compliant PPE | `No-Vest` | 🚨 Violation State |
 
 > **Overall Model mAP@50: 88.5%** — See the full [Accuracy & Evaluation Report](docs/accuracy_report.md) for class-by-class breakdown.
+
+---
+
+## ⚡ NVIDIA Jetson Edge Deployment
+
+For NVIDIA Jetson Orin Nano, Orin NX, AGX Orin, and Xavier running JetPack 6.x (Ubuntu 22.04 LTS):
+
+### 🚀 Quick 3-Step Automated Setup on Jetson
+
+```bash
+# 1. Provision system dependencies & Python environment
+chmod +x deploy/jetson/*.sh
+./deploy/jetson/install.sh
+
+# 2. Compile hardware-optimized TensorRT FP16 engine on Orin GPU (~10-20 min)
+./deploy/jetson/export_engine.sh
+
+# 3. Start high-performance edge server with live telemetry & streaming
+./deploy/jetson/start.sh
+```
+
+### 🛠️ Manual & Service Options on Jetson
+
+```bash
+# Maximize performance (Lock MAXN clocks)
+sudo nvpmodel -m 0 && sudo jetson_clocks
+
+# Verify edge deployment health & GPU inference
+./deploy/jetson/verify_deployment.sh
+
+# Optional: Run high-throughput NVIDIA DeepStream pipeline
+python3 deploy/jetson/deepstream_pipeline.py --input rtsp://your_camera_ip:554/stream1
+
+# Optional: Run as 24/7 background systemd daemon
+sudo cp deploy/jetson/edgevision-pipeline.service /etc/systemd/system/cerberus.service
+sudo systemctl daemon-reload && sudo systemctl enable --now cerberus
+```
+
+> Detailed hardware benchmarks, thermal management with `jtop`, and RTSP buffer tuning are in the [NVIDIA Jetson Setup Guide](docs/jetson_setup.md).
 
 ---
 
@@ -211,8 +250,8 @@ Engineered for enterprise industrial operations adhering to **OSHA 1910.132** an
 
 ---
 
-## 👩‍💻 Developer
+## 👨‍💻 Developer
 
-**Cerberus AI** is developed and maintained by **Vidhyashree M**.
+**Cerberus AI** is developed and maintained by **Sowmiyan S**.
 
-- 🔗 **GitHub:** [https://github.com/Vidhyasree14/Cerberus-AI](https://github.com/Vidhyasree14/Cerberus-AI)
+- 🔗 **GitHub:** [https://github.com/sowmiyan-s/ppe-detection-yolo](https://github.com/sowmiyan-s/ppe-detection-yolo)
