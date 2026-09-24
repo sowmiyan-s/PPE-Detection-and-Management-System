@@ -94,7 +94,7 @@ def format_discord_embed(
 
     return {
         "username": "Cerberus AI Safety Bot",
-        "avatar_url": "https://raw.githubusercontent.com/sowmiyan-s/ppe-detection-yolo/main/public/favicon.ico",
+        "avatar_url": "https://raw.githubusercontent.com/sowmiyan-s/PPE-Detection-and-Management-System/main/public/favicon.ico",
         "embeds": [
             {
                 "title": title,

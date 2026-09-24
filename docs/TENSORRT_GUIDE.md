@@ -1,6 +1,6 @@
 # ⚡ NVIDIA TensorRT Engine Compilation & Optimization Guide
 
-> **Repository:** [https://github.com/sowmiyan-s/ppe-detection-yolo](https://github.com/sowmiyan-s/ppe-detection-yolo) | **Developer:** Sowmiyan S
+> **Repository:** [https://github.com/sowmiyan-s/PPE-Detection-and-Management-System](https://github.com/sowmiyan-s/PPE-Detection-and-Management-System) | **Developer:** Sowmiyan S
 
 This guide details how to export, compile, and validate NVIDIA TensorRT FP16 and INT8 quantized execution engines for **Cerberus AI**, achieving up to 3.6× inference throughput improvements over native PyTorch.
 
@@ -161,4 +161,4 @@ MODEL_PATH = "models/best.engine"   # TensorRT FP16 (recommended)
 
 ---
 
-*Part of the [Cerberus AI](https://github.com/sowmiyan-s/ppe-detection-yolo) platform — developed by Sowmiyan S.*
+*Part of the [Cerberus AI](https://github.com/sowmiyan-s/PPE-Detection-and-Management-System) platform — developed by Sowmiyan S.*

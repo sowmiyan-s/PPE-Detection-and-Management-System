@@ -1,6 +1,6 @@
 # 🗺️ TanStack File-Based Routes Directory
 
-> **Repository:** [https://github.com/sowmiyan-s/ppe-detection-yolo](https://github.com/sowmiyan-s/ppe-detection-yolo) | **Developer:** Sowmiyan S
+> **Repository:** [https://github.com/sowmiyan-s/PPE-Detection-and-Management-System](https://github.com/sowmiyan-s/PPE-Detection-and-Management-System) | **Developer:** Sowmiyan S
 
 This directory defines the page routes for the **Cerberus AI Control Room** using TanStack Router file-based route resolution.
 
@@ -46,4 +46,4 @@ This directory defines the page routes for the **Cerberus AI Control Room** usin
 
 ---
 
-*Part of the [Cerberus AI](https://github.com/sowmiyan-s/ppe-detection-yolo) platform — developed by Sowmiyan S.*
+*Part of the [Cerberus AI](https://github.com/sowmiyan-s/PPE-Detection-and-Management-System) platform — developed by Sowmiyan S.*

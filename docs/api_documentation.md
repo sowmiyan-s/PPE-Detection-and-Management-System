@@ -1,6 +1,6 @@
 # 📡 Cerberus AI — REST & WebSocket API Specification
 
-> **Repository:** [https://github.com/sowmiyan-s/ppe-detection-yolo](https://github.com/sowmiyan-s/ppe-detection-yolo) | **Developer:** Sowmiyan S
+> **Repository:** [https://github.com/sowmiyan-s/PPE-Detection-and-Management-System](https://github.com/sowmiyan-s/PPE-Detection-and-Management-System) | **Developer:** Sowmiyan S
 
 Cerberus AI exposes a high-throughput RESTful management API and a low-latency WebSocket telemetry stream, both powered by **FastAPI** with async I/O throughout.
 
@@ -333,4 +333,4 @@ All endpoints return standardized error responses:
 
 ---
 
-*Part of the [Cerberus AI](https://github.com/sowmiyan-s/ppe-detection-yolo) platform — developed by Sowmiyan S.*
+*Part of the [Cerberus AI](https://github.com/sowmiyan-s/PPE-Detection-and-Management-System) platform — developed by Sowmiyan S.*

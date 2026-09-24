@@ -1,6 +1,6 @@
 # 🎬 Cerberus AI — Demonstration & Live Walkthrough Guide
 
-> **Repository:** [https://github.com/sowmiyan-s/ppe-detection-yolo](https://github.com/sowmiyan-s/ppe-detection-yolo) | **Developer:** Sowmiyan S
+> **Repository:** [https://github.com/sowmiyan-s/PPE-Detection-and-Management-System](https://github.com/sowmiyan-s/PPE-Detection-and-Management-System) | **Developer:** Sowmiyan S
 
 Step-by-step instructions for demonstrating the **Cerberus AI Platform** live in control rooms, during technical evaluations, or conducting simulated verification runs.
 
@@ -189,4 +189,4 @@ curl http://localhost:8000/api/model/benchmark
 
 ---
 
-*Part of the [Cerberus AI](https://github.com/sowmiyan-s/ppe-detection-yolo) platform — developed by Sowmiyan S.*
+*Part of the [Cerberus AI](https://github.com/sowmiyan-s/PPE-Detection-and-Management-System) platform — developed by Sowmiyan S.*

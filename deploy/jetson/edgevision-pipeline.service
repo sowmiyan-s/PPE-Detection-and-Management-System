@@ -1,6 +1,6 @@
 [Unit]
 Description=EdgeVision NVIDIA Jetson Orin 24/7 Industrial Safety Service
-Documentation=https://github.com/sowmiyan-s/ppe-detection-yolo
+Documentation=https://github.com/sowmiyan-s/PPE-Detection-and-Management-System
 After=network-online.target
 Wants=network-online.target
 

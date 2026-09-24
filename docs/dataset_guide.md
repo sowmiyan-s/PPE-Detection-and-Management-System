@@ -1,6 +1,6 @@
 # 🏷️ Dataset Taxonomy & Annotation Engineering Guide
 
-> **Repository:** [https://github.com/sowmiyan-s/ppe-detection-yolo](https://github.com/sowmiyan-s/ppe-detection-yolo) | **Developer:** Sowmiyan S
+> **Repository:** [https://github.com/sowmiyan-s/PPE-Detection-and-Management-System](https://github.com/sowmiyan-s/PPE-Detection-and-Management-System) | **Developer:** Sowmiyan S
 
 This technical guide outlines the PPE class taxonomy, directory layout, labeling standards, and data augmentation pipeline used to train **Cerberus AI**.
 
@@ -146,4 +146,4 @@ The following augmentation pipeline was applied during training to maximize gene
 
 ---
 
-*Part of the [Cerberus AI](https://github.com/sowmiyan-s/ppe-detection-yolo) platform — developed by Sowmiyan S.*
+*Part of the [Cerberus AI](https://github.com/sowmiyan-s/PPE-Detection-and-Management-System) platform — developed by Sowmiyan S.*

@@ -143,7 +143,7 @@
 
   <!-- Footer -->
   <rect x="20" y="662" width="1160" height="28" rx="6" fill="#0d1a2d" stroke="#1e3a4a" stroke-width="1"/>
-  <text x="40" y="681" font-size="10" fill="#64748b">https://github.com/sowmiyan-s/ppe-detection-yolo</text>
+  <text x="40" y="681" font-size="10" fill="#64748b">https://github.com/sowmiyan-s/PPE-Detection-and-Management-System</text>
   <text x="600" y="681" text-anchor="middle" font-size="10" fill="#64748b">Developer: Sowmiyan S  |  Python 3.10+ / FastAPI / YOLOv8 / ByteTrack / React 19 / SQLite WAL</text>
   <text x="1160" y="681" text-anchor="end" font-size="10" fill="#64748b">OSHA 1910.132  |  ISO 45001</text>
 </svg>

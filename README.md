@@ -1,6 +1,6 @@
 # 🛡️ Cerberus AI — Industrial PPE Compliance & Safety Intelligence Platform
 
-[![GitHub](https://img.shields.io/badge/GitHub-sowmiyan--s%2Fppe--detection--yolo-181717?style=flat&logo=github)](https://github.com/sowmiyan-s/ppe-detection-yolo)
+[![GitHub](https://img.shields.io/badge/GitHub-sowmiyan--s%2FPPE--Detection--and--Management--System-181717?style=flat&logo=github)](https://github.com/sowmiyan-s/PPE-Detection-and-Management-System)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688.svg?style=flat&logo=fastapi)](https://fastapi.tiangolo.com)
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB.svg?style=flat&logo=python)](https://www.python.org)
 [![YOLOv8](https://img.shields.io/badge/Inference-YOLOv8%20%7C%20TensorRT-00FFFF.svg?style=flat)](https://ultralytics.com)
@@ -10,7 +10,7 @@
 
 **Cerberus AI** is an enterprise-grade Edge AI computer vision platform engineered for continuous, multi-camera Personal Protective Equipment (PPE) compliance monitoring and real-time safety telemetry. Designed for manufacturing plant floors, hazardous industrial sites, and high-altitude construction platforms, the platform fuses custom-trained YOLOv8/v11 models, ByteTrack persistent worker tracking, temporal noise suppression, and high-frequency WebSocket streaming into a seamless control room experience.
 
-> **Official Repository:** [https://github.com/sowmiyan-s/ppe-detection-yolo](https://github.com/sowmiyan-s/ppe-detection-yolo)
+> **Official Repository:** [https://github.com/sowmiyan-s/PPE-Detection-and-Management-System](https://github.com/sowmiyan-s/PPE-Detection-and-Management-System)
 >
 > **Developer:** Sowmiyan S
 
@@ -96,8 +96,8 @@ start_fullstack.bat
 #### Backend Setup
 ```bash
 # Clone the repository
-git clone https://github.com/sowmiyan-s/ppe-detection-yolo.git
-cd ppe-detection-yolo
+git clone https://github.com/sowmiyan-s/PPE-Detection-and-Management-System.git
+cd PPE-Detection-and-Management-System
 
 # Install Python dependencies
 pip install -r requirements.txt
@@ -254,4 +254,4 @@ Engineered for enterprise industrial operations adhering to **OSHA 1910.132** an
 
 **Cerberus AI** is developed and maintained by **Sowmiyan S**.
 
-- 🔗 **GitHub:** [https://github.com/sowmiyan-s/ppe-detection-yolo](https://github.com/sowmiyan-s/ppe-detection-yolo)
+- 🔗 **GitHub:** [https://github.com/sowmiyan-s/PPE-Detection-and-Management-System](https://github.com/sowmiyan-s/PPE-Detection-and-Management-System)

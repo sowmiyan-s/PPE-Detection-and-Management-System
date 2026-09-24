@@ -37,7 +37,7 @@ flowchart LR
 
 ### Step 1: Clone Repository & Run Automated Provisioning
 ```bash
-git clone https://github.com/sowmiyan-s/ppe-detection-yolo.git /opt/edgevision
+git clone https://github.com/sowmiyan-s/PPE-Detection-and-Management-System.git /opt/edgevision
 cd /opt/edgevision
 
 # Run automated system setup (installs V4L2, GStreamer, Python stack, and locks GPU clocks)

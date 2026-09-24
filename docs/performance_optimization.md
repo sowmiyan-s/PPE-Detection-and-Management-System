@@ -1,6 +1,6 @@
 # ⚡ Performance & Multi-Camera Scaling Optimization
 
-> **Repository:** [https://github.com/sowmiyan-s/ppe-detection-yolo](https://github.com/sowmiyan-s/ppe-detection-yolo) | **Developer:** Sowmiyan S
+> **Repository:** [https://github.com/sowmiyan-s/PPE-Detection-and-Management-System](https://github.com/sowmiyan-s/PPE-Detection-and-Management-System) | **Developer:** Sowmiyan S
 
 This technical specification details the concurrency architecture, memory management, adaptive resolution sizing, and multi-stream scaling strategies implemented in **Cerberus AI**.
 
@@ -152,4 +152,4 @@ INFERENCE_RESOLUTION = 480          # Balanced for Orin Nano
 
 ---
 
-*Part of the [Cerberus AI](https://github.com/sowmiyan-s/ppe-detection-yolo) platform — developed by Sowmiyan S.*
+*Part of the [Cerberus AI](https://github.com/sowmiyan-s/PPE-Detection-and-Management-System) platform — developed by Sowmiyan S.*

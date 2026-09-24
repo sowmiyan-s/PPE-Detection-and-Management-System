@@ -1,6 +1,6 @@
 # 🖥️ Cerberus AI Frontend — Executive Control Room SPA
 
-> **Repository:** [https://github.com/sowmiyan-s/ppe-detection-yolo](https://github.com/sowmiyan-s/ppe-detection-yolo) | **Developer:** Sowmiyan S
+> **Repository:** [https://github.com/sowmiyan-s/PPE-Detection-and-Management-System](https://github.com/sowmiyan-s/PPE-Detection-and-Management-System) | **Developer:** Sowmiyan S
 
 The **Cerberus AI Control Room** is an industrial-grade Single Page Application (SPA) built for real-time edge telemetry visualization, multi-camera surveillance, incident triage, and worker compliance management.
 
@@ -151,4 +151,4 @@ The frontend connects to the FastAPI backend at:
 
 ---
 
-*Part of the [Cerberus AI](https://github.com/sowmiyan-s/ppe-detection-yolo) platform — developed by Sowmiyan S.*
+*Part of the [Cerberus AI](https://github.com/sowmiyan-s/PPE-Detection-and-Management-System) platform — developed by Sowmiyan S.*

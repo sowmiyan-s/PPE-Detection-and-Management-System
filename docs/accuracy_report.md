@@ -1,6 +1,6 @@
 # 🎯 Model Accuracy & Validation Evaluation Report
 
-> **Repository:** [https://github.com/sowmiyan-s/ppe-detection-yolo](https://github.com/sowmiyan-s/ppe-detection-yolo) | **Developer:** Sowmiyan S
+> **Repository:** [https://github.com/sowmiyan-s/PPE-Detection-and-Management-System](https://github.com/sowmiyan-s/PPE-Detection-and-Management-System) | **Developer:** Sowmiyan S
 
 Evaluation results for the custom-trained **Cerberus AI YOLOv8** model, evaluated on an industrial validation benchmark containing **3,400+ annotated high-resolution frames** across diverse workplace conditions including indoor manufacturing floors, outdoor construction sites, rooftop platforms, and welding stations.
 
@@ -94,4 +94,4 @@ Violation classes (`No-Helmet`, `No-Vest`, etc.) achieve **slightly lower precis
 
 ---
 
-*Part of the [Cerberus AI](https://github.com/sowmiyan-s/ppe-detection-yolo) platform — developed by Sowmiyan S.*
+*Part of the [Cerberus AI](https://github.com/sowmiyan-s/PPE-Detection-and-Management-System) platform — developed by Sowmiyan S.*
